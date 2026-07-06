@@ -466,6 +466,41 @@
       border: 1px solid var(--line);
       border-radius: 14px;
       background: rgba(255,255,255,.55);
+      cursor: grab;
+      touch-action: none;
+      transition: opacity .16s, transform .16s, border-color .16s;
+    }
+
+    .photo-item:active {
+      cursor: grabbing;
+    }
+
+    .photo-item.dragging {
+      opacity: .58;
+      transform: scale(.96);
+      border-color: rgba(217,70,135,.65);
+    }
+
+    .photo-item.drag-over {
+      transform: scale(1.04);
+      border-color: rgba(47,158,143,.72);
+      box-shadow: 0 10px 24px rgba(47,158,143,.18);
+    }
+
+    .photo-order {
+      position: absolute;
+      left: 6px;
+      top: 6px;
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(38,35,43,.56);
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
     }
 
     .photo-item img {
@@ -1398,7 +1433,8 @@
         return;
       }
       $("photoGrid").innerHTML = state.diaryPhotos.map((src, index) => `
-        <div class="photo-item">
+        <div class="photo-item" draggable="true" data-photo-index="${index}" title="长按拖动调整顺序">
+          <span class="photo-order">${index + 1}</span>
           <img src="${src}" alt="日记图片 ${index + 1}" />
           <button class="photo-remove" type="button" data-photo="${index}">×</button>
         </div>
@@ -1408,6 +1444,73 @@
           state.diaryPhotos.splice(Number(button.dataset.photo), 1);
           renderPhotoGrid();
         });
+      });
+      bindPhotoSorting();
+    }
+
+    function bindPhotoSorting() {
+      let dragIndex = null;
+      document.querySelectorAll(".photo-item").forEach((item) => {
+        item.addEventListener("dragstart", (event) => {
+          dragIndex = Number(item.dataset.photoIndex);
+          item.classList.add("dragging");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", String(dragIndex));
+        });
+        item.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          item.classList.add("drag-over");
+        });
+        item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+        item.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const from = dragIndex ?? Number(event.dataTransfer.getData("text/plain"));
+          const to = Number(item.dataset.photoIndex);
+          reorderDiaryPhoto(from, to);
+        });
+        item.addEventListener("dragend", () => {
+          dragIndex = null;
+          clearPhotoDragState();
+        });
+        item.addEventListener("pointerdown", (event) => {
+          if (event.target.closest(".photo-remove")) return;
+          item.dataset.pointerStart = String(Number(item.dataset.photoIndex));
+          item.setPointerCapture?.(event.pointerId);
+          item.classList.add("dragging");
+        });
+        item.addEventListener("pointermove", (event) => {
+          const from = Number(item.dataset.pointerStart);
+          if (Number.isNaN(from)) return;
+          const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".photo-item");
+          document.querySelectorAll(".photo-item.drag-over").forEach((el) => el.classList.remove("drag-over"));
+          if (target && target !== item) target.classList.add("drag-over");
+        });
+        item.addEventListener("pointerup", (event) => {
+          const from = Number(item.dataset.pointerStart);
+          delete item.dataset.pointerStart;
+          const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".photo-item");
+          if (target) reorderDiaryPhoto(from, Number(target.dataset.photoIndex));
+          clearPhotoDragState();
+        });
+        item.addEventListener("pointercancel", () => {
+          delete item.dataset.pointerStart;
+          clearPhotoDragState();
+        });
+      });
+    }
+
+    function reorderDiaryPhoto(from, to) {
+      if (Number.isNaN(from) || Number.isNaN(to) || from === to) return;
+      if (from < 0 || to < 0 || from >= state.diaryPhotos.length || to >= state.diaryPhotos.length) return;
+      const [moved] = state.diaryPhotos.splice(from, 1);
+      state.diaryPhotos.splice(to, 0, moved);
+      renderPhotoGrid();
+      showToast("照片顺序已调整");
+    }
+
+    function clearPhotoDragState() {
+      document.querySelectorAll(".photo-item").forEach((item) => {
+        item.classList.remove("dragging", "drag-over");
       });
     }
 
