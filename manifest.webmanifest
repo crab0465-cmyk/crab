@@ -1,0 +1,19 @@
+{
+  "name": "专属祝福小屋",
+  "short_name": "专属祝福",
+  "description": "按日期、四季和节日生成专属祝福，并保存本地心情日记。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff2f6",
+  "theme_color": "#d94687",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
