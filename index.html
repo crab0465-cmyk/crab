@@ -378,7 +378,7 @@
 
     .actions {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 9px;
       margin-top: 14px;
     }
@@ -576,6 +576,16 @@
       border-radius: 10px;
       color: #a73568;
       background: rgba(217,70,135,.09);
+    }
+
+    .backup-btn {
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 11px;
+      color: var(--muted);
+      background: rgba(255,255,255,.5);
+      border: 1px solid var(--line);
+      font-size: 12px;
     }
 
     .empty {
@@ -807,11 +817,10 @@
           <div class="chips" id="chips"></div>
           <div class="actions">
             <button class="secondary" id="copyBtn" type="button">复制</button>
-            <button class="secondary" id="shareBtn" type="button">分享到便签</button>
+            <button class="primary" id="shareBtn" type="button">分享</button>
             <button class="secondary" id="saveWishImageBtn" type="button">保存到相册</button>
-            <button class="ghost" id="saveBtn" type="button">收藏</button>
           </div>
-          <button class="ghost" id="exportBtn" type="button" style="width:100%;margin-top:9px">导出备份</button>
+          <button class="ghost" id="saveBtn" type="button" style="width:100%;margin-top:9px">收藏这条祝福</button>
         </article>
       </section>
     </section>
@@ -826,7 +835,10 @@
       <section class="panel section">
         <div class="panel-title">
           <h2>心情日记</h2>
-          <button class="ghost" id="clearAllBtn" type="button">清空记录</button>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="backup-btn" id="exportBtn" type="button">备份</button>
+            <button class="ghost" id="clearAllBtn" type="button">清空记录</button>
+          </div>
         </div>
         <div class="diary-form">
           <textarea id="diaryText" placeholder="写下今天的一点点心情，或把这份祝福送给谁。"></textarea>
@@ -835,7 +847,7 @@
           <div class="diary-tools">
             <button class="primary" id="saveDiaryBtn" type="button">保存日记</button>
             <button class="secondary" id="addPhotoBtn" type="button">上传图片</button>
-            <button class="secondary" id="shareDiaryBtn" type="button">分享日记</button>
+            <button class="secondary" id="shareDiaryBtn" type="button">分享</button>
             <button class="secondary" id="saveDiaryImageBtn" type="button">保存到相册</button>
             <button class="secondary" id="clearDiaryBtn" type="button">清空输入</button>
           </div>
@@ -1058,11 +1070,20 @@
 
     async function shareWish() {
       const text = currentShareText();
-      if (navigator.share) {
+      if (!state.current) return;
+      const canvas = createPosterCanvas({
+        title: "Crab bless you",
+        subtitle: `专属祝福 · ${state.current.name} · ${state.current.date}`,
+        body: state.current.wish,
+        footer: state.current.tags.join(" · ")
+      });
+      const file = await canvasToFile(canvas, `blessing-share-${Date.now()}.png`);
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
         try {
           await navigator.share({
             title: "专属祝福",
-            text
+            text,
+            files: [file]
           });
           showToast("已打开系统分享");
           return;
@@ -1072,9 +1093,10 @@
       }
       try {
         await navigator.clipboard.writeText(text);
-        showToast("已复制，可粘贴到便签");
+        showAlbumPreview(file);
+        showToast("已复制文案，长按图片可分享或保存");
       } catch (error) {
-        showToast("当前浏览器不支持系统分享");
+        showAlbumPreview(file);
       }
     }
 
@@ -1085,11 +1107,19 @@
         return;
       }
       const shareText = `${dateLabel()} ${timeLabel()}\n${text || "今日图片日记"}`;
-      if (navigator.share) {
+      const canvas = await createDiaryPosterCanvas({
+        title: "Crab bless you",
+        subtitle: `心情日记 · ${dateLabel()} ${timeLabel()}`,
+        body: text || "今日图片日记",
+        photos: state.diaryPhotos
+      });
+      const file = await canvasToFile(canvas, `diary-share-${Date.now()}.png`);
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
         try {
           await navigator.share({
             title: "心情日记",
-            text: shareText
+            text: shareText,
+            files: [file]
           });
           showToast("已打开系统分享");
           return;
@@ -1099,9 +1129,10 @@
       }
       try {
         await navigator.clipboard.writeText(shareText);
-        showToast("已复制日记文字，可粘贴到便签");
+        showAlbumPreview(file);
+        showToast("已复制文字，长按图片可分享或保存");
       } catch (error) {
-        showToast("当前浏览器不支持系统分享");
+        showAlbumPreview(file);
       }
     }
 
@@ -1282,9 +1313,13 @@
       return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
     }
 
-    async function saveCanvasToAlbum(canvas, filename) {
+    async function canvasToFile(canvas, filename) {
       const blob = await canvasToBlob(canvas);
-      const file = new File([blob], filename, { type: "image/png" });
+      return new File([blob], filename, { type: "image/png" });
+    }
+
+    async function saveCanvasToAlbum(canvas, filename) {
+      const file = await canvasToFile(canvas, filename);
       state.albumFile = file;
       if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
         try {
