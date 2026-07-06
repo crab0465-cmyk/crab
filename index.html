@@ -921,12 +921,47 @@
       ["📮", "今日任务", "给重要的人发一句真心话。"]
     ];
 
+    const musicPools = {
+      rainy: [
+        ["《雨天》", "孙燕姿"],
+        ["《下雨天》", "南拳妈妈"],
+        ["《Kiss the Rain》", "Yiruma"]
+      ],
+      sunny: [
+        ["《日不落》", "蔡依林"],
+        ["《晴天》", "周杰伦"],
+        ["《Walking on Sunshine》", "Katrina and the Waves"]
+      ],
+      cold: [
+        ["《雪落下的声音》", "陆虎"],
+        ["《冬天的秘密》", "周传雄"],
+        ["《Somewhere Only We Know》", "Keane"]
+      ],
+      hot: [
+        ["《夏天的风》", "温岚"],
+        ["《宁夏》", "梁静茹"],
+        ["《Watermelon Sugar》", "Harry Styles"]
+      ],
+      night: [
+        ["《晚安》", "颜人中"],
+        ["《月亮代表我的心》", "邓丽君"],
+        ["《Yellow》", "Coldplay"]
+      ],
+      focus: [
+        ["《稻香》", "周杰伦"],
+        ["《平凡之路》", "朴树"],
+        ["《Viva La Vida》", "Coldplay"]
+      ]
+    };
+
     const state = {
       season: autoSeason(),
       current: null,
       diaryPhotos: [],
       albumFile: null,
-      albumUrl: ""
+      albumUrl: "",
+      localContext: null,
+      fortuneSeed: 12
     };
 
     const $ = (id) => document.getElementById(id);
@@ -989,12 +1024,10 @@
     }
 
     function renderFortunes(seed = 1) {
+      state.fortuneSeed = seed;
       const item = seasons[state.season];
       const lucky = (seed % 88) + 11;
-      const picked = fortunes.map((fortune, index) => {
-        const word = item.words[(seed + index) % item.words.length];
-        return [fortune[0], fortune[1], `${fortune[2]} 今日关键词：${word}。`];
-      });
+      const picked = buildPersonalFortunes(seed, item);
       $("fortuneList").innerHTML = picked.map((fortune) => `
         <div class="fortune">
           <b>${fortune[0]}</b>
@@ -1002,6 +1035,88 @@
         </div>
       `).join("");
       $("luckyNumber").textContent = `No. ${lucky}`;
+    }
+
+    function buildPersonalFortunes(seed, seasonItem) {
+      const ctx = state.localContext;
+      if (!ctx) {
+        return fortunes.map((fortune, index) => {
+          const word = seasonItem.words[(seed + index) % seasonItem.words.length];
+          return [fortune[0], fortune[1], `${fortune[2]} 今日关键词：${word}。正在联网获取城市与天气。`];
+        });
+      }
+      const weather = ctx.weather;
+      const location = ctx.city ? `${ctx.city}${ctx.region ? " · " + ctx.region : ""}` : "你所在的城市";
+      const temp = Number.isFinite(weather?.temperature) ? `${Math.round(weather.temperature)}°C` : "舒适温度";
+      const desc = weatherDescription(weather?.code);
+      const hour = new Date().getHours();
+      const song = recommendSong(ctx, seed);
+      return [
+        ["🌤️", `今日天气 · ${location}`, `${desc}，约 ${temp}。${weatherSentence(weather)} `],
+        ["🍵", "今日补给", supplySentence(weather, hour)],
+        ["🎧", "今日旋律", `推荐 ${song[0]} - ${song[1]}。${musicSentence(weather, hour)}`],
+        ["📮", "今日任务", taskSentence(ctx, hour, seasonItem.words[seed % seasonItem.words.length])]
+      ];
+    }
+
+    function weatherDescription(code) {
+      const table = {
+        0: "晴朗", 1: "大体晴朗", 2: "有些多云", 3: "阴天",
+        45: "有雾", 48: "雾凇", 51: "小毛毛雨", 53: "毛毛雨", 55: "较强毛毛雨",
+        61: "小雨", 63: "中雨", 65: "大雨", 71: "小雪", 73: "中雪", 75: "大雪",
+        80: "阵雨", 81: "较强阵雨", 82: "强阵雨", 95: "雷雨"
+      };
+      return table[code] || "天气变化中";
+    }
+
+    function isRainy(code) {
+      return [51, 53, 55, 61, 63, 65, 80, 81, 82, 95].includes(Number(code));
+    }
+
+    function weatherSentence(weather) {
+      if (!weather) return "适合把节奏放慢一点，听听身体的需要。";
+      if (isRainy(weather.code)) return "带伞出门，心事也可以找个地方轻轻落下。";
+      if (weather.temperature >= 30) return "注意防晒和补水，别把自己晒成过熟的勇气。";
+      if (weather.temperature <= 8) return "多加一层衣服，把温暖先留给自己。";
+      if (weather.wind >= 28) return "风有点认真，适合把计划写得更稳一点。";
+      return "适合出门走走，也适合认真开始一件小事。";
+    }
+
+    function supplySentence(weather, hour) {
+      if (weather && isRainy(weather.code)) return "热茶、干爽鞋袜和一首慢歌，今天的补给要偏温柔。";
+      if (weather && weather.temperature >= 30) return "冰水、清爽水果和一点午后阴凉，给自己留出降温时间。";
+      if (weather && weather.temperature <= 8) return "热汤、围巾和早点休息，身体暖了，心也会跟上。";
+      if (hour < 11) return "早餐加一杯喜欢的饮品，先把今天的电量充到 80%。";
+      if (hour < 17) return "一段不被打扰的十分钟，配一点甜食，适合重启状态。";
+      return "晚风、热饮和少看一会儿屏幕，给今天一个柔软收尾。";
+    }
+
+    function recommendSong(ctx, seed) {
+      const weather = ctx.weather || {};
+      let key = "focus";
+      const hour = new Date().getHours();
+      if (hour >= 20 || hour < 6) key = "night";
+      if (isRainy(weather.code)) key = "rainy";
+      else if (weather.temperature >= 30) key = "hot";
+      else if (weather.temperature <= 8) key = "cold";
+      else if ([0, 1].includes(Number(weather.code))) key = "sunny";
+      const pool = musicPools[key] || musicPools.focus;
+      return pool[seed % pool.length];
+    }
+
+    function musicSentence(weather, hour) {
+      if (weather && isRainy(weather.code)) return "雨天适合把音量调低一点，让旋律陪你慢慢走。";
+      if (hour >= 20 || hour < 6) return "夜晚适合不太吵的歌，把情绪轻轻放平。";
+      if (weather && weather.temperature >= 30) return "热天适合清爽旋律，像给心情加冰。";
+      return "这首歌适合今天的节奏，轻轻推你往前走。";
+    }
+
+    function taskSentence(ctx, hour, keyword) {
+      const city = ctx.city || "所在城市";
+      if (ctx.weather && isRainy(ctx.weather.code)) return `在${city}的雨意里，给重要的人发一句近况，今天的关键词是${keyword}。`;
+      if (hour < 11) return `先完成一件 15 分钟内能收尾的小事，让${city}的今天从掌控感开始。`;
+      if (hour < 17) return `找一个能晒到光或透气的地方，整理一下待办，留下三件真正重要的事。`;
+      return `今晚给自己留一段空白时间，复盘今天最值得记住的一秒。`;
     }
 
     function generate() {
@@ -1051,6 +1166,71 @@
       $("holidayTitle").textContent = holiday.title;
       $("holidaySub").textContent = holiday.sub;
       banner.classList.add("show");
+    }
+
+    async function loadLocalContext() {
+      try {
+        const location = await fetchIpLocation();
+        const weather = location.latitude && location.longitude
+          ? await fetchLocalWeather(location.latitude, location.longitude)
+          : null;
+        state.localContext = { ...location, weather };
+        renderFortunes(state.fortuneSeed || 12);
+      } catch (error) {
+        state.localContext = {
+          city: "",
+          region: "",
+          weather: null
+        };
+        renderFortunes(state.fortuneSeed || 12);
+      }
+    }
+
+    async function fetchIpLocation() {
+      try {
+        const res = await fetch("https://ipapi.co/json/");
+        if (!res.ok) throw new Error("ipapi unavailable");
+        const data = await res.json();
+        return {
+          city: data.city || "",
+          region: data.region || data.country_name || "",
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+          timezone: data.timezone || ""
+        };
+      } catch (error) {
+        const res = await fetch("https://ipwho.is/");
+        if (!res.ok) throw error;
+        const data = await res.json();
+        return {
+          city: data.city || "",
+          region: data.region || data.country || "",
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+          timezone: data.timezone?.id || ""
+        };
+      }
+    }
+
+    async function fetchLocalWeather(latitude, longitude) {
+      const params = new URLSearchParams({
+        latitude: String(latitude),
+        longitude: String(longitude),
+        current: "temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,is_day",
+        timezone: "auto"
+      });
+      const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+      if (!res.ok) throw new Error("weather unavailable");
+      const data = await res.json();
+      const current = data.current || {};
+      return {
+        temperature: Number(current.temperature_2m),
+        humidity: Number(current.relative_humidity_2m),
+        precipitation: Number(current.precipitation),
+        code: Number(current.weather_code),
+        wind: Number(current.wind_speed_10m),
+        isDay: current.is_day === 1
+      };
     }
 
     function currentShareText() {
@@ -1775,6 +1955,7 @@
     renderHoliday(todayHoliday());
     renderFortunes(12);
     renderFavorites();
+    loadLocalContext();
     (async function initDiaryStorage() {
       await requestPersistentStorage();
       await migrateDiaryToIndexedDB();
