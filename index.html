@@ -588,6 +588,18 @@
       font-size: 12px;
     }
 
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+    }
+
     .empty {
       padding: 28px 12px;
       text-align: center;
@@ -827,7 +839,10 @@
 
     <section class="content">
       <section class="panel section">
-        <h2>幸运小签</h2>
+        <div class="section-head">
+          <h2>幸运小签</h2>
+          <button class="backup-btn" id="preciseLocationBtn" type="button">精确定位</button>
+        </div>
         <div class="fortune-list" id="fortuneList"></div>
         <div class="favorites" id="favorites"></div>
       </section>
@@ -1046,7 +1061,7 @@
         });
       }
       const weather = ctx.weather;
-      const location = ctx.city ? `${ctx.city}${ctx.region ? " · " + ctx.region : ""}` : "你所在的城市";
+      const location = locationLabel(ctx) || "你所在的城市";
       const temp = Number.isFinite(weather?.temperature) ? `${Math.round(weather.temperature)}°C` : "舒适温度";
       const desc = weatherDescription(weather?.code);
       const hour = new Date().getHours();
@@ -1119,6 +1134,39 @@
       return `今晚给自己留一段空白时间，复盘今天最值得记住的一秒。`;
     }
 
+    function posterContextLine() {
+      const ctx = state.localContext;
+      if (!ctx) return "正在获取位置与天气";
+      const location = locationLabel(ctx) || "本地位置";
+      if (!ctx.weather) return `${location} · 天气获取中`;
+      const desc = weatherDescription(ctx.weather.code);
+      const temp = Number.isFinite(ctx.weather.temperature) ? `${Math.round(ctx.weather.temperature)}°C` : "温度未知";
+      return `${location} · ${desc} · ${temp}`;
+    }
+
+    function getPosterTheme() {
+      const weather = state.localContext?.weather;
+      if (weather && isRainy(weather.code)) {
+        return { a: "#eef7ff", b: "#f8f2ff", c: "#e8f9f3", accent: "#5275d8", soft: "rgba(82,117,216,.13)", glow: "rgba(47,158,143,.12)" };
+      }
+      if (weather && weather.temperature >= 30) {
+        return { a: "#fff8da", b: "#e9fbf5", c: "#fff1ef", accent: "#e3a536", soft: "rgba(227,165,54,.18)", glow: "rgba(47,158,143,.13)" };
+      }
+      if (weather && weather.temperature <= 8) {
+        return { a: "#eef5ff", b: "#f7eefb", c: "#ffffff", accent: "#5275d8", soft: "rgba(82,117,216,.14)", glow: "rgba(84,167,189,.12)" };
+      }
+      if (state.season === "summer") {
+        return { a: "#eafaf6", b: "#fff8d8", c: "#eef7ff", accent: "#159a8d", soft: "rgba(21,154,141,.14)", glow: "rgba(227,165,54,.15)" };
+      }
+      if (state.season === "autumn") {
+        return { a: "#fff4dc", b: "#fae6e2", c: "#fffaf2", accent: "#b7652f", soft: "rgba(183,101,47,.14)", glow: "rgba(188,63,86,.12)" };
+      }
+      if (state.season === "winter") {
+        return { a: "#eef5ff", b: "#f7eefb", c: "#ffffff", accent: "#5275d8", soft: "rgba(82,117,216,.14)", glow: "rgba(84,167,189,.12)" };
+      }
+      return { a: "#fff2f6", b: "#edf9f3", c: "#fff8e4", accent: "#d94687", soft: "rgba(217,70,135,.12)", glow: "rgba(47,158,143,.13)" };
+    }
+
     function generate() {
       const raw = $("nameInput").value.trim();
       if (!raw) {
@@ -1171,10 +1219,13 @@
     async function loadLocalContext() {
       try {
         const location = await fetchIpLocation();
+        const enriched = location.latitude && location.longitude
+          ? await enrichLocation(location)
+          : location;
         const weather = location.latitude && location.longitude
           ? await fetchLocalWeather(location.latitude, location.longitude)
           : null;
-        state.localContext = { ...location, weather };
+        state.localContext = { ...enriched, weather, source: "ip" };
         renderFortunes(state.fortuneSeed || 12);
       } catch (error) {
         state.localContext = {
@@ -1186,14 +1237,26 @@
       }
     }
 
+    function locationLabel(ctx) {
+      if (!ctx) return "";
+      const parts = [ctx.country, ctx.region, ctx.city, ctx.district || ctx.locality]
+        .filter(Boolean)
+        .map((part) => String(part).trim())
+        .filter((part, index, arr) => part && arr.indexOf(part) === index);
+      return parts.join(" · ");
+    }
+
     async function fetchIpLocation() {
       try {
         const res = await fetch("https://ipapi.co/json/");
         if (!res.ok) throw new Error("ipapi unavailable");
         const data = await res.json();
         return {
+          country: data.country_name || "",
           city: data.city || "",
           region: data.region || data.country_name || "",
+          district: "",
+          locality: "",
           latitude: Number(data.latitude),
           longitude: Number(data.longitude),
           timezone: data.timezone || ""
@@ -1203,12 +1266,75 @@
         if (!res.ok) throw error;
         const data = await res.json();
         return {
+          country: data.country || "",
           city: data.city || "",
           region: data.region || data.country || "",
+          district: "",
+          locality: "",
           latitude: Number(data.latitude),
           longitude: Number(data.longitude),
           timezone: data.timezone?.id || ""
         };
+      }
+    }
+
+    async function enrichLocation(location) {
+      try {
+        const params = new URLSearchParams({
+          latitude: String(location.latitude),
+          longitude: String(location.longitude),
+          localityLanguage: "zh"
+        });
+        const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?${params.toString()}`);
+        if (!res.ok) return location;
+        const data = await res.json();
+        return {
+          ...location,
+          country: data.countryName || location.country || "",
+          region: data.principalSubdivision || location.region || "",
+          city: data.city || location.city || data.locality || "",
+          district: data.localityInfo?.administrative?.find((item) => item.adminLevel >= 8)?.name || "",
+          locality: data.locality || ""
+        };
+      } catch (error) {
+        return location;
+      }
+    }
+
+    function getBrowserPosition() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("geolocation unavailable"));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 300000
+        });
+      });
+    }
+
+    async function usePreciseLocation() {
+      try {
+        showToast("正在请求精确定位");
+        const position = await getBrowserPosition();
+        const base = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          country: "",
+          region: "",
+          city: "",
+          district: "",
+          locality: ""
+        };
+        const location = await enrichLocation(base);
+        const weather = await fetchLocalWeather(base.latitude, base.longitude);
+        state.localContext = { ...location, weather, source: "gps" };
+        renderFortunes(state.fortuneSeed || 12);
+        showToast("已更新为更精确的位置");
+      } catch (error) {
+        showToast("无法获取精确定位，可检查浏览器定位权限");
       }
     }
 
@@ -1365,12 +1491,14 @@
       canvas.width = 1200;
       canvas.height = 1600;
       const ctx = canvas.getContext("2d");
-      paintPosterBase(ctx, canvas.width, canvas.height);
+      const theme = getPosterTheme();
+      paintPosterBase(ctx, canvas.width, canvas.height, theme);
       drawText(ctx, title, 96, 150, 52, 1000, 1.2, "700");
       drawText(ctx, subtitle, 96, 230, 30, 1000, 1.4, "400", "#746979");
-      const used = drawText(ctx, body, 96, 390, 70, 1000, 1.36, "700", "#2f2a35");
+      drawText(ctx, posterContextLine(), 96, 282, 26, 1000, 1.4, "400", theme.accent);
+      const used = drawText(ctx, body, 96, 420, 70, 1000, 1.36, "700", "#2f2a35");
       drawText(ctx, footer, 96, Math.min(1320, used + 72), 30, 1000, 1.5, "400", "#6a596d");
-      drawText(ctx, "Crab bless you", 96, 1460, 28, 1000, 1.4, "700", "#d94687");
+      drawText(ctx, "Crab bless you", 96, 1460, 28, 1000, 1.4, "700", theme.accent);
       return canvas;
     }
 
@@ -1378,25 +1506,35 @@
       const canvas = document.createElement("canvas");
       const photoCount = Math.min((photos || []).length, 9);
       canvas.width = 1200;
-      canvas.height = photoCount ? 2200 : 1500;
+      canvas.height = getDiaryPosterHeight(photoCount);
       const ctx = canvas.getContext("2d");
-      paintPosterBase(ctx, canvas.width, canvas.height);
+      const theme = getPosterTheme();
+      paintPosterBase(ctx, canvas.width, canvas.height, theme);
       drawText(ctx, title, 96, 140, 50, 1000, 1.2, "700");
       drawText(ctx, subtitle, 96, 218, 30, 1000, 1.4, "400", "#746979");
-      let y = drawText(ctx, body, 96, 340, 44, 1000, 1.65, "400", "#2f2a35");
+      drawText(ctx, posterContextLine(), 96, 270, 26, 1000, 1.4, "400", theme.accent);
+      let y = drawText(ctx, body, 96, 365, 44, 1000, 1.65, "400", "#2f2a35");
       if (photos && photos.length) {
         y += 48;
         await drawPosterPhotos(ctx, photos, 96, y, 1000);
       }
-      drawText(ctx, "Crab bless you", 96, canvas.height - 92, 28, 1000, 1.4, "700", "#d94687");
+      drawText(ctx, "Crab bless you", 96, canvas.height - 92, 28, 1000, 1.4, "700", theme.accent);
       return canvas;
     }
 
-    function paintPosterBase(ctx, width, height) {
+    function getDiaryPosterHeight(photoCount) {
+      if (!photoCount) return 1500;
+      if (photoCount === 1) return 1700;
+      if (photoCount <= 3) return 1550;
+      if (photoCount === 4) return 1850;
+      return 2200;
+    }
+
+    function paintPosterBase(ctx, width, height, theme = getPosterTheme()) {
       const bg = ctx.createLinearGradient(0, 0, width, height);
-      bg.addColorStop(0, "#fff2f6");
-      bg.addColorStop(.52, "#edf9f3");
-      bg.addColorStop(1, "#fff8e4");
+      bg.addColorStop(0, theme.a);
+      bg.addColorStop(.52, theme.b);
+      bg.addColorStop(1, theme.c);
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, width, height);
       ctx.fillStyle = "rgba(255,255,255,.76)";
@@ -1405,11 +1543,11 @@
       ctx.strokeStyle = "rgba(47,42,53,.1)";
       ctx.lineWidth = 3;
       ctx.stroke();
-      ctx.fillStyle = "rgba(47,158,143,.13)";
+      ctx.fillStyle = theme.glow;
       ctx.beginPath();
       ctx.arc(width - 160, 180, 150, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "rgba(217,70,135,.12)";
+      ctx.fillStyle = theme.soft;
       ctx.beginPath();
       ctx.arc(170, height - 180, 170, 0, Math.PI * 2);
       ctx.fill();
@@ -1448,18 +1586,49 @@
     async function drawPosterPhotos(ctx, photos, x, y, maxWidth) {
       const gap = 18;
       const count = Math.min(photos.length, 9);
-      const columns = 3;
-      const size = (maxWidth - gap * 2) / columns;
+      const layout = getMomentPhotoLayout(count, maxWidth, gap);
       for (let i = 0; i < count; i++) {
         const img = await loadImage(photos[i]);
-        const px = x + (i % columns) * (size + gap);
-        const py = y + Math.floor(i / columns) * (size + gap);
+        const cell = layout[i];
+        const px = x + cell.x;
+        const py = y + cell.y;
         ctx.save();
-        roundRect(ctx, px, py, size, size, 30);
+        roundRect(ctx, px, py, cell.w, cell.h, 30);
         ctx.clip();
-        drawCoverImage(ctx, img, px, py, size, size);
+        drawCoverImage(ctx, img, px, py, cell.w, cell.h);
         ctx.restore();
       }
+    }
+
+    function getMomentPhotoLayout(count, maxWidth, gap) {
+      if (count === 1) {
+        const size = Math.min(620, maxWidth);
+        return [{ x: 0, y: 0, w: size, h: size }];
+      }
+      if (count === 2) {
+        const size = (maxWidth - gap) / 2;
+        return [0, 1].map((i) => ({ x: i * (size + gap), y: 0, w: size, h: size }));
+      }
+      if (count === 3) {
+        const size = (maxWidth - gap * 2) / 3;
+        return [0, 1, 2].map((i) => ({ x: i * (size + gap), y: 0, w: size, h: size }));
+      }
+      if (count === 4) {
+        const size = (maxWidth - gap) / 2;
+        return [0, 1, 2, 3].map((i) => ({
+          x: (i % 2) * (size + gap),
+          y: Math.floor(i / 2) * (size + gap),
+          w: size,
+          h: size
+        }));
+      }
+      const size = (maxWidth - gap * 2) / 3;
+      return Array.from({ length: count }, (_, i) => ({
+        x: (i % 3) * (size + gap),
+        y: Math.floor(i / 3) * (size + gap),
+        w: size,
+        h: size
+      }));
     }
 
     function loadImage(src) {
@@ -1975,6 +2144,7 @@
     $("saveWishImageBtn").addEventListener("click", saveWishImage);
     $("saveBtn").addEventListener("click", saveFavorite);
     $("exportBtn").addEventListener("click", exportData);
+    $("preciseLocationBtn").addEventListener("click", usePreciseLocation);
     $("addPhotoBtn").addEventListener("click", pickPhotos);
     $("photoInput").addEventListener("change", handlePhotos);
     $("shareDiaryBtn").addEventListener("click", shareDiaryDraft);
