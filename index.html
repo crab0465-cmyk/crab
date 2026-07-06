@@ -814,10 +814,10 @@
   <div class="album-sheet" id="albumSheet" aria-hidden="true">
     <div class="album-panel" role="dialog" aria-modal="true" aria-labelledby="albumTitle">
       <h2 id="albumTitle">保存到相册</h2>
-      <p>如果没有自动出现“保存图像”，请长按下方图片，选择保存到照片/相册。</p>
+      <p>点击确认保存会下载这张图片；也可以长按下方图片，选择保存到照片/相册。</p>
       <img id="albumPreview" alt="生成的保存图片" />
       <div class="album-actions">
-        <button class="primary" id="albumShareBtn" type="button">打开保存面板</button>
+        <button class="primary" id="albumSaveBtn" type="button">确认保存图片</button>
         <button class="secondary" id="albumCloseBtn" type="button">关闭</button>
       </div>
     </div>
@@ -1124,14 +1124,15 @@
       drawText(ctx, subtitle, 96, 230, 30, 1000, 1.4, "400", "#746979");
       const used = drawText(ctx, body, 96, 390, 70, 1000, 1.36, "700", "#2f2a35");
       drawText(ctx, footer, 96, Math.min(1320, used + 72), 30, 1000, 1.5, "400", "#6a596d");
-      drawText(ctx, "专属祝福小屋", 96, 1460, 28, 1000, 1.4, "700", "#d94687");
+      drawText(ctx, "Crab bless you", 96, 1460, 28, 1000, 1.4, "700", "#d94687");
       return canvas;
     }
 
     async function createDiaryPosterCanvas({ title, subtitle, body, photos }) {
       const canvas = document.createElement("canvas");
+      const photoCount = Math.min((photos || []).length, 9);
       canvas.width = 1200;
-      canvas.height = photos && photos.length ? 1800 : 1500;
+      canvas.height = photoCount ? 2200 : 1500;
       const ctx = canvas.getContext("2d");
       paintPosterBase(ctx, canvas.width, canvas.height);
       drawText(ctx, title, 96, 140, 50, 1000, 1.2, "700");
@@ -1141,7 +1142,7 @@
         y += 48;
         await drawPosterPhotos(ctx, photos, 96, y, 1000);
       }
-      drawText(ctx, "保存自专属祝福小屋", 96, canvas.height - 92, 28, 1000, 1.4, "700", "#d94687");
+      drawText(ctx, "Crab bless you", 96, canvas.height - 92, 28, 1000, 1.4, "700", "#d94687");
       return canvas;
     }
 
@@ -1200,9 +1201,10 @@
 
     async function drawPosterPhotos(ctx, photos, x, y, maxWidth) {
       const gap = 18;
-      const columns = photos.length === 1 ? 1 : 2;
-      const size = columns === 1 ? Math.min(620, maxWidth) : (maxWidth - gap) / 2;
-      for (let i = 0; i < Math.min(photos.length, 4); i++) {
+      const count = Math.min(photos.length, 9);
+      const columns = count === 1 ? 1 : count <= 4 ? 2 : 3;
+      const size = columns === 1 ? Math.min(620, maxWidth) : (maxWidth - gap * (columns - 1)) / columns;
+      for (let i = 0; i < count; i++) {
         const img = await loadImage(photos[i]);
         const px = x + (i % columns) * (size + gap);
         const py = y + Math.floor(i / columns) * (size + gap);
@@ -1283,26 +1285,14 @@
       $("albumSheet").setAttribute("aria-hidden", "true");
     }
 
-    async function shareAlbumPreview() {
+    function saveAlbumPreview() {
       if (!state.albumFile) return;
-      if (navigator.canShare && navigator.canShare({ files: [state.albumFile] }) && navigator.share) {
-        try {
-          await navigator.share({
-            title: "保存到相册",
-            text: "请选择保存图像或保存到相册",
-            files: [state.albumFile]
-          });
-          return;
-        } catch (error) {
-          if (error.name === "AbortError") return;
-        }
-      }
       const url = state.albumUrl || URL.createObjectURL(state.albumFile);
       const link = document.createElement("a");
       link.href = url;
       link.download = state.albumFile.name;
       link.click();
-      showToast("已下载图片，可从下载项保存到相册");
+      showToast("图片已保存/下载，也可长按图片保存到相册");
     }
 
     function storageGet(key) {
@@ -1553,7 +1543,7 @@
       showToast("输入已清空");
     });
     $("clearAllBtn").addEventListener("click", clearAll);
-    $("albumShareBtn").addEventListener("click", shareAlbumPreview);
+    $("albumSaveBtn").addEventListener("click", saveAlbumPreview);
     $("albumCloseBtn").addEventListener("click", closeAlbumPreview);
     $("albumSheet").addEventListener("click", (event) => {
       if (event.target === $("albumSheet")) closeAlbumPreview();
