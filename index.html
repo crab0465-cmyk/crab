@@ -1075,8 +1075,8 @@
       if (!state.current) return;
       const canvas = createPosterCanvas({
         type: "wish",
-        title: "专属祝福",
-        subtitle: `${state.current.name} · ${state.current.date}`,
+        title: "Crab bless you",
+        subtitle: `专属祝福 · ${state.current.name} · ${state.current.date}`,
         body: state.current.wish,
         footer: state.current.tags.join(" · "),
         photos: []
@@ -1091,8 +1091,8 @@
         return;
       }
       const canvas = await createDiaryPosterCanvas({
-        title: "心情日记",
-        subtitle: `${dateLabel()} ${timeLabel()}`,
+        title: "Crab bless you",
+        subtitle: `心情日记 · ${dateLabel()} ${timeLabel()}`,
         body: text || "今日图片日记",
         photos: state.diaryPhotos
       });
@@ -1106,8 +1106,8 @@
         return;
       }
       const canvas = await createDiaryPosterCanvas({
-        title: "心情日记",
-        subtitle: record.date,
+        title: "Crab bless you",
+        subtitle: `心情日记 · ${record.date}`,
         body: record.text || "今日图片日记",
         photos: record.photos || []
       });
@@ -1202,8 +1202,8 @@
     async function drawPosterPhotos(ctx, photos, x, y, maxWidth) {
       const gap = 18;
       const count = Math.min(photos.length, 9);
-      const columns = count === 1 ? 1 : count <= 4 ? 2 : 3;
-      const size = columns === 1 ? Math.min(620, maxWidth) : (maxWidth - gap * (columns - 1)) / columns;
+      const columns = 3;
+      const size = (maxWidth - gap * 2) / columns;
       for (let i = 0; i < count; i++) {
         const img = await loadImage(photos[i]);
         const px = x + (i % columns) * (size + gap);
