@@ -1135,7 +1135,7 @@
     }
 
     async function saveDiaryRecordImage(id) {
-      const record = storageGet("blessing:diary").find((item) => String(item.id) === String(id));
+      const record = await getDiaryRecord(id);
       if (!record) {
         showToast("没有找到这条日记");
         return;
@@ -1339,6 +1339,118 @@
       localStorage.setItem(key, JSON.stringify(value));
     }
 
+    const DB_NAME = "crab-blessing-db";
+    const DB_VERSION = 1;
+    const DIARY_STORE = "diary";
+
+    function openDiaryDB() {
+      return new Promise((resolve, reject) => {
+        if (!("indexedDB" in window)) {
+          reject(new Error("IndexedDB is not supported"));
+          return;
+        }
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(DIARY_STORE)) {
+            const store = db.createObjectStore(DIARY_STORE, { keyPath: "id" });
+            store.createIndex("date", "id");
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function withDiaryStore(mode, callback) {
+      const db = await openDiaryDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DIARY_STORE, mode);
+        const store = tx.objectStore(DIARY_STORE);
+        const result = callback(store);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(result);
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      });
+    }
+
+    async function getDiaryRecords() {
+      try {
+        const db = await openDiaryDB();
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(DIARY_STORE, "readonly");
+          const request = tx.objectStore(DIARY_STORE).getAll();
+          request.onsuccess = () => resolve(request.result.sort((a, b) => b.id - a.id));
+          request.onerror = () => reject(request.error);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        });
+      } catch (error) {
+        return storageGet("blessing:diary");
+      }
+    }
+
+    async function addDiaryRecord(record) {
+      await withDiaryStore("readwrite", (store) => store.put(record));
+    }
+
+    async function getDiaryRecord(id) {
+      try {
+        const db = await openDiaryDB();
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(DIARY_STORE, "readonly");
+          const request = tx.objectStore(DIARY_STORE).get(Number(id));
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        });
+      } catch (error) {
+        return storageGet("blessing:diary").find((item) => String(item.id) === String(id)) || null;
+      }
+    }
+
+    async function deleteDiaryRecord(id) {
+      await withDiaryStore("readwrite", (store) => store.delete(Number(id)));
+    }
+
+    async function clearDiaryRecords() {
+      await withDiaryStore("readwrite", (store) => store.clear());
+    }
+
+    async function migrateDiaryToIndexedDB() {
+      const oldRecords = storageGet("blessing:diary");
+      if (!oldRecords.length) return;
+      try {
+        const existing = await getDiaryRecords();
+        if (existing.length) return;
+        await withDiaryStore("readwrite", (store) => {
+          oldRecords.forEach((record) => store.put(record));
+        });
+        localStorage.removeItem("blessing:diary");
+      } catch (error) {
+        // Keep the old localStorage data if migration is unavailable.
+      }
+    }
+
+    async function requestPersistentStorage() {
+      if (!navigator.storage || !navigator.storage.persist) return;
+      try {
+        await navigator.storage.persist();
+      } catch (error) {}
+    }
+
     function saveFavorite() {
       if (!state.current) generate();
       const list = storageGet("blessing:favorites");
@@ -1368,11 +1480,11 @@
       });
     }
 
-    function exportData() {
+    async function exportData() {
       const data = {
         exportedAt: new Date().toISOString(),
         favorites: storageGet("blessing:favorites"),
-        diary: storageGet("blessing:diary")
+        diary: await getDiaryRecords()
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -1514,25 +1626,30 @@
       });
     }
 
-    function saveDiary() {
+    async function saveDiary() {
       const text = $("diaryText").value.trim();
       if (!text && state.diaryPhotos.length === 0) {
         showToast("先写一点内容或上传图片吧");
         return;
       }
-      const list = storageGet("blessing:diary");
-      list.unshift({ id: Date.now(), date: dateLabel() + " " + timeLabel(), text, photos: state.diaryPhotos.slice() });
+      const record = { id: Date.now(), date: dateLabel() + " " + timeLabel(), text, photos: state.diaryPhotos.slice() };
       try {
-        storageSet("blessing:diary", list.slice(0, 60));
+        await addDiaryRecord(record);
       } catch (error) {
-        showToast("图片太多，本地空间不够了");
-        return;
+        try {
+          const list = storageGet("blessing:diary");
+          list.unshift(record);
+          storageSet("blessing:diary", list.slice(0, 60));
+        } catch (fallbackError) {
+          showToast("保存失败，手机浏览器存储空间可能不够");
+          return;
+        }
       }
       $("diaryText").value = "";
       state.diaryPhotos = [];
       renderPhotoGrid();
-      renderDiary();
-      showToast("日记已保存");
+      await renderDiary();
+      showToast("日记已保存到手机本地数据库");
     }
 
     function timeLabel() {
@@ -1540,8 +1657,8 @@
       return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     }
 
-    function renderDiary() {
-      const list = storageGet("blessing:diary");
+    async function renderDiary() {
+      const list = await getDiaryRecords();
       if (!list.length) {
         $("records").innerHTML = `<div class="empty">还没有日记。今天可以从一句“我很好”开始。</div>`;
         return;
@@ -1563,9 +1680,9 @@
         button.addEventListener("click", () => saveDiaryRecordImage(button.dataset.diaryImage));
       });
       document.querySelectorAll("[data-diary]").forEach((button) => {
-        button.addEventListener("click", () => {
-          storageSet("blessing:diary", storageGet("blessing:diary").filter((item) => String(item.id) !== button.dataset.diary));
-          renderDiary();
+        button.addEventListener("click", async () => {
+          await deleteDiaryRecord(button.dataset.diary);
+          await renderDiary();
         });
       });
     }
@@ -1575,11 +1692,15 @@
       return `<div class="record-photos">${photos.map((src, index) => `<img src="${src}" alt="已保存图片 ${index + 1}" />`).join("")}</div>`;
     }
 
-    function clearAll() {
+    async function clearAll() {
       if (!confirm("确定清空所有日记和收藏吗？")) return;
-      localStorage.removeItem("blessing:diary");
+      try {
+        await clearDiaryRecords();
+      } catch (error) {
+        localStorage.removeItem("blessing:diary");
+      }
       localStorage.removeItem("blessing:favorites");
-      renderDiary();
+      await renderDiary();
       renderFavorites();
       showToast("已清空");
     }
@@ -1618,8 +1739,12 @@
     setSeason(state.season);
     renderHoliday(todayHoliday());
     renderFortunes(12);
-    renderDiary();
     renderFavorites();
+    (async function initDiaryStorage() {
+      await requestPersistentStorage();
+      await migrateDiaryToIndexedDB();
+      await renderDiary();
+    })();
 
     $("generateBtn").addEventListener("click", generate);
     $("nameInput").addEventListener("keydown", (event) => {
