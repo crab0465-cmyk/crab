@@ -578,6 +578,57 @@
       transform: translate(-50%, 0);
     }
 
+    .album-sheet {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(31, 28, 36, .72);
+    }
+
+    .album-sheet.show {
+      display: grid;
+    }
+
+    .album-panel {
+      width: min(430px, 100%);
+      max-height: 92vh;
+      overflow: auto;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.96);
+      box-shadow: var(--shadow);
+    }
+
+    .album-panel img {
+      display: block;
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .album-panel h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .album-panel p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .album-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
     .petal {
       position: fixed;
       top: -40px;
@@ -722,7 +773,7 @@
           <div class="actions">
             <button class="secondary" id="copyBtn" type="button">复制</button>
             <button class="secondary" id="shareBtn" type="button">分享到便签</button>
-            <button class="secondary" id="saveWishImageBtn" type="button">保存照片</button>
+            <button class="secondary" id="saveWishImageBtn" type="button">保存到相册</button>
             <button class="ghost" id="saveBtn" type="button">收藏</button>
           </div>
           <button class="ghost" id="exportBtn" type="button" style="width:100%;margin-top:9px">导出备份</button>
@@ -750,7 +801,7 @@
             <button class="primary" id="saveDiaryBtn" type="button">保存日记</button>
             <button class="secondary" id="addPhotoBtn" type="button">上传图片</button>
             <button class="secondary" id="shareDiaryBtn" type="button">分享日记</button>
-            <button class="secondary" id="saveDiaryImageBtn" type="button">保存照片</button>
+            <button class="secondary" id="saveDiaryImageBtn" type="button">保存到相册</button>
             <button class="secondary" id="clearDiaryBtn" type="button">清空输入</button>
           </div>
         </div>
@@ -760,6 +811,17 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="album-sheet" id="albumSheet" aria-hidden="true">
+    <div class="album-panel" role="dialog" aria-modal="true" aria-labelledby="albumTitle">
+      <h2 id="albumTitle">保存到相册</h2>
+      <p>如果没有自动出现“保存图像”，请长按下方图片，选择保存到照片/相册。</p>
+      <img id="albumPreview" alt="生成的保存图片" />
+      <div class="album-actions">
+        <button class="primary" id="albumShareBtn" type="button">打开保存面板</button>
+        <button class="secondary" id="albumCloseBtn" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const seasons = {
@@ -815,7 +877,9 @@
     const state = {
       season: autoSeason(),
       current: null,
-      diaryPhotos: []
+      diaryPhotos: [],
+      albumFile: null,
+      albumUrl: ""
     };
 
     const $ = (id) => document.getElementById(id);
@@ -1017,7 +1081,7 @@
         footer: state.current.tags.join(" · "),
         photos: []
       });
-      await shareOrDownloadCanvas(canvas, `blessing-${Date.now()}.png`, "祝福照片已生成");
+      await saveCanvasToAlbum(canvas, `blessing-${Date.now()}.png`);
     }
 
     async function saveDiaryDraftImage() {
@@ -1032,7 +1096,7 @@
         body: text || "今日图片日记",
         photos: state.diaryPhotos
       });
-      await shareOrDownloadCanvas(canvas, `diary-${Date.now()}.png`, "日记照片已生成");
+      await saveCanvasToAlbum(canvas, `diary-${Date.now()}.png`);
     }
 
     async function saveDiaryRecordImage(id) {
@@ -1047,7 +1111,7 @@
         body: record.text || "今日图片日记",
         photos: record.photos || []
       });
-      await shareOrDownloadCanvas(canvas, `diary-${record.id}.png`, "日记照片已生成");
+      await saveCanvasToAlbum(canvas, `diary-${record.id}.png`);
     }
 
     function createPosterCanvas({ title, subtitle, body, footer }) {
@@ -1181,29 +1245,64 @@
       return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
     }
 
-    async function shareOrDownloadCanvas(canvas, filename, successMessage) {
+    async function saveCanvasToAlbum(canvas, filename) {
       const blob = await canvasToBlob(canvas);
       const file = new File([blob], filename, { type: "image/png" });
+      state.albumFile = file;
       if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
         try {
           await navigator.share({
-            title: filename.replace(".png", ""),
-            text: "保存这张图片到相册",
+            title: "保存到相册",
+            text: "请选择保存图像或保存到相册",
             files: [file]
           });
-          showToast("已打开系统保存/分享");
+          showToast("已打开保存到相册面板");
+          return;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            showAlbumPreview(file);
+            return;
+          }
+        }
+      }
+      showAlbumPreview(file);
+    }
+
+    function showAlbumPreview(file) {
+      if (state.albumUrl) URL.revokeObjectURL(state.albumUrl);
+      state.albumFile = file;
+      state.albumUrl = URL.createObjectURL(file);
+      $("albumPreview").src = state.albumUrl;
+      $("albumSheet").classList.add("show");
+      $("albumSheet").setAttribute("aria-hidden", "false");
+      showToast("长按图片可保存到相册");
+    }
+
+    function closeAlbumPreview() {
+      $("albumSheet").classList.remove("show");
+      $("albumSheet").setAttribute("aria-hidden", "true");
+    }
+
+    async function shareAlbumPreview() {
+      if (!state.albumFile) return;
+      if (navigator.canShare && navigator.canShare({ files: [state.albumFile] }) && navigator.share) {
+        try {
+          await navigator.share({
+            title: "保存到相册",
+            text: "请选择保存图像或保存到相册",
+            files: [state.albumFile]
+          });
           return;
         } catch (error) {
           if (error.name === "AbortError") return;
         }
       }
-      const url = URL.createObjectURL(blob);
+      const url = state.albumUrl || URL.createObjectURL(state.albumFile);
       const link = document.createElement("a");
       link.href = url;
-      link.download = filename;
+      link.download = state.albumFile.name;
       link.click();
-      URL.revokeObjectURL(url);
-      showToast(successMessage);
+      showToast("已下载图片，可从下载项保存到相册");
     }
 
     function storageGet(key) {
@@ -1454,6 +1553,11 @@
       showToast("输入已清空");
     });
     $("clearAllBtn").addEventListener("click", clearAll);
+    $("albumShareBtn").addEventListener("click", shareAlbumPreview);
+    $("albumCloseBtn").addEventListener("click", closeAlbumPreview);
+    $("albumSheet").addEventListener("click", (event) => {
+      if (event.target === $("albumSheet")) closeAlbumPreview();
+    });
 
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       window.addEventListener("load", () => {
