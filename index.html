@@ -378,7 +378,7 @@
 
     .actions {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 9px;
       margin-top: 14px;
     }
@@ -445,7 +445,7 @@
 
     .diary-tools {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) repeat(3, 110px);
+      grid-template-columns: minmax(0, 1fr) repeat(4, 110px);
       gap: 10px;
     }
 
@@ -722,6 +722,7 @@
           <div class="actions">
             <button class="secondary" id="copyBtn" type="button">复制</button>
             <button class="secondary" id="shareBtn" type="button">分享到便签</button>
+            <button class="secondary" id="saveWishImageBtn" type="button">保存照片</button>
             <button class="ghost" id="saveBtn" type="button">收藏</button>
           </div>
           <button class="ghost" id="exportBtn" type="button" style="width:100%;margin-top:9px">导出备份</button>
@@ -749,6 +750,7 @@
             <button class="primary" id="saveDiaryBtn" type="button">保存日记</button>
             <button class="secondary" id="addPhotoBtn" type="button">上传图片</button>
             <button class="secondary" id="shareDiaryBtn" type="button">分享日记</button>
+            <button class="secondary" id="saveDiaryImageBtn" type="button">保存照片</button>
             <button class="secondary" id="clearDiaryBtn" type="button">清空输入</button>
           </div>
         </div>
@@ -1004,6 +1006,206 @@
       }
     }
 
+    async function saveWishImage() {
+      if (!state.current) generate();
+      if (!state.current) return;
+      const canvas = createPosterCanvas({
+        type: "wish",
+        title: "专属祝福",
+        subtitle: `${state.current.name} · ${state.current.date}`,
+        body: state.current.wish,
+        footer: state.current.tags.join(" · "),
+        photos: []
+      });
+      await shareOrDownloadCanvas(canvas, `blessing-${Date.now()}.png`, "祝福照片已生成");
+    }
+
+    async function saveDiaryDraftImage() {
+      const text = $("diaryText").value.trim();
+      if (!text && state.diaryPhotos.length === 0) {
+        showToast("先写日记或上传图片");
+        return;
+      }
+      const canvas = await createDiaryPosterCanvas({
+        title: "心情日记",
+        subtitle: `${dateLabel()} ${timeLabel()}`,
+        body: text || "今日图片日记",
+        photos: state.diaryPhotos
+      });
+      await shareOrDownloadCanvas(canvas, `diary-${Date.now()}.png`, "日记照片已生成");
+    }
+
+    async function saveDiaryRecordImage(id) {
+      const record = storageGet("blessing:diary").find((item) => String(item.id) === String(id));
+      if (!record) {
+        showToast("没有找到这条日记");
+        return;
+      }
+      const canvas = await createDiaryPosterCanvas({
+        title: "心情日记",
+        subtitle: record.date,
+        body: record.text || "今日图片日记",
+        photos: record.photos || []
+      });
+      await shareOrDownloadCanvas(canvas, `diary-${record.id}.png`, "日记照片已生成");
+    }
+
+    function createPosterCanvas({ title, subtitle, body, footer }) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext("2d");
+      paintPosterBase(ctx, canvas.width, canvas.height);
+      drawText(ctx, title, 96, 150, 52, 1000, 1.2, "700");
+      drawText(ctx, subtitle, 96, 230, 30, 1000, 1.4, "400", "#746979");
+      const used = drawText(ctx, body, 96, 390, 70, 1000, 1.36, "700", "#2f2a35");
+      drawText(ctx, footer, 96, Math.min(1320, used + 72), 30, 1000, 1.5, "400", "#6a596d");
+      drawText(ctx, "专属祝福小屋", 96, 1460, 28, 1000, 1.4, "700", "#d94687");
+      return canvas;
+    }
+
+    async function createDiaryPosterCanvas({ title, subtitle, body, photos }) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1200;
+      canvas.height = photos && photos.length ? 1800 : 1500;
+      const ctx = canvas.getContext("2d");
+      paintPosterBase(ctx, canvas.width, canvas.height);
+      drawText(ctx, title, 96, 140, 50, 1000, 1.2, "700");
+      drawText(ctx, subtitle, 96, 218, 30, 1000, 1.4, "400", "#746979");
+      let y = drawText(ctx, body, 96, 340, 44, 1000, 1.65, "400", "#2f2a35");
+      if (photos && photos.length) {
+        y += 48;
+        await drawPosterPhotos(ctx, photos, 96, y, 1000);
+      }
+      drawText(ctx, "保存自专属祝福小屋", 96, canvas.height - 92, 28, 1000, 1.4, "700", "#d94687");
+      return canvas;
+    }
+
+    function paintPosterBase(ctx, width, height) {
+      const bg = ctx.createLinearGradient(0, 0, width, height);
+      bg.addColorStop(0, "#fff2f6");
+      bg.addColorStop(.52, "#edf9f3");
+      bg.addColorStop(1, "#fff8e4");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "rgba(255,255,255,.76)";
+      roundRect(ctx, 60, 60, width - 120, height - 120, 52);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(47,42,53,.1)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(47,158,143,.13)";
+      ctx.beginPath();
+      ctx.arc(width - 160, 180, 150, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(217,70,135,.12)";
+      ctx.beginPath();
+      ctx.arc(170, height - 180, 170, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawText(ctx, text, x, y, size, maxWidth, lineHeight = 1.45, weight = "400", color = "#2f2a35") {
+      ctx.fillStyle = color;
+      ctx.font = `${weight} ${size}px "Noto Serif SC", "Microsoft YaHei", "PingFang SC", serif`;
+      ctx.textBaseline = "top";
+      const lines = wrapText(ctx, String(text || ""), maxWidth);
+      lines.forEach((line, index) => {
+        ctx.fillText(line, x, y + index * size * lineHeight);
+      });
+      return y + lines.length * size * lineHeight;
+    }
+
+    function wrapText(ctx, text, maxWidth) {
+      const lines = [];
+      const paragraphs = text.split("\n");
+      paragraphs.forEach((paragraph) => {
+        let line = "";
+        Array.from(paragraph).forEach((char) => {
+          const test = line + char;
+          if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line);
+            line = char;
+          } else {
+            line = test;
+          }
+        });
+        lines.push(line || " ");
+      });
+      return lines;
+    }
+
+    async function drawPosterPhotos(ctx, photos, x, y, maxWidth) {
+      const gap = 18;
+      const columns = photos.length === 1 ? 1 : 2;
+      const size = columns === 1 ? Math.min(620, maxWidth) : (maxWidth - gap) / 2;
+      for (let i = 0; i < Math.min(photos.length, 4); i++) {
+        const img = await loadImage(photos[i]);
+        const px = x + (i % columns) * (size + gap);
+        const py = y + Math.floor(i / columns) * (size + gap);
+        ctx.save();
+        roundRect(ctx, px, py, size, size, 30);
+        ctx.clip();
+        drawCoverImage(ctx, img, px, py, size, size);
+        ctx.restore();
+      }
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    function drawCoverImage(ctx, img, x, y, width, height) {
+      const scale = Math.max(width / img.width, height / img.height);
+      const drawWidth = img.width * scale;
+      const drawHeight = img.height * scale;
+      ctx.drawImage(img, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      const r = Math.min(radius, width / 2, height / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    }
+
+    function canvasToBlob(canvas) {
+      return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
+    }
+
+    async function shareOrDownloadCanvas(canvas, filename, successMessage) {
+      const blob = await canvasToBlob(canvas);
+      const file = new File([blob], filename, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+        try {
+          await navigator.share({
+            title: filename.replace(".png", ""),
+            text: "保存这张图片到相册",
+            files: [file]
+          });
+          showToast("已打开系统保存/分享");
+          return;
+        } catch (error) {
+          if (error.name === "AbortError") return;
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast(successMessage);
+    }
+
     function storageGet(key) {
       try { return JSON.parse(localStorage.getItem(key) || "[]"); }
       catch (error) { return []; }
@@ -1154,11 +1356,20 @@
       }
       $("records").innerHTML = list.map((item) => `
         <article class="record">
-          <div class="record-head"><span>${item.date}</span><button class="tiny" data-diary="${item.id}">删除</button></div>
+          <div class="record-head">
+            <span>${item.date}</span>
+            <span>
+              <button class="tiny" data-diary-image="${item.id}">存图</button>
+              <button class="tiny" data-diary="${item.id}">删除</button>
+            </span>
+          </div>
           <p>${escapeHtml(item.text)}</p>
           ${renderRecordPhotos(item.photos)}
         </article>
       `).join("");
+      document.querySelectorAll("[data-diary-image]").forEach((button) => {
+        button.addEventListener("click", () => saveDiaryRecordImage(button.dataset.diaryImage));
+      });
       document.querySelectorAll("[data-diary]").forEach((button) => {
         button.addEventListener("click", () => {
           storageSet("blessing:diary", storageGet("blessing:diary").filter((item) => String(item.id) !== button.dataset.diary));
@@ -1228,11 +1439,13 @@
     });
     $("copyBtn").addEventListener("click", copyWish);
     $("shareBtn").addEventListener("click", shareWish);
+    $("saveWishImageBtn").addEventListener("click", saveWishImage);
     $("saveBtn").addEventListener("click", saveFavorite);
     $("exportBtn").addEventListener("click", exportData);
     $("addPhotoBtn").addEventListener("click", pickPhotos);
     $("photoInput").addEventListener("change", handlePhotos);
     $("shareDiaryBtn").addEventListener("click", shareDiaryDraft);
+    $("saveDiaryImageBtn").addEventListener("click", saveDiaryDraftImage);
     $("saveDiaryBtn").addEventListener("click", saveDiary);
     $("clearDiaryBtn").addEventListener("click", () => {
       $("diaryText").value = "";
