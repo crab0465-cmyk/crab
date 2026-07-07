@@ -1,4 +1,4 @@
-const CACHE_NAME = "daily-blessing-v14";
+const CACHE_NAME = "daily-blessing-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
