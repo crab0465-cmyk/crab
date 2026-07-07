@@ -1280,17 +1280,19 @@
           return [fortune[0], fortune[1], `${fortune[2]} 今日关键词：${word}。正在联网获取城市与天气。`];
         });
       }
-      const weather = ctx.weather;
-      const location = locationLabel(ctx) || "你所在的城市";
+      const trustedLabel = trustedLocationLabel(ctx);
+      const location = trustedLabel || "位置待确认";
+      const weather = trustedLabel ? ctx.weather : null;
+      const fortuneCtx = trustedLabel ? ctx : { ...ctx, city: "位置待确认", weather: null };
       const temp = Number.isFinite(weather?.temperature) ? `${Math.round(weather.temperature)}°C` : "舒适温度";
       const desc = weatherDescription(weather?.code);
       const hour = new Date().getHours();
-      const song = recommendSong(ctx, seed);
+      const song = recommendSong(fortuneCtx, seed);
       return [
         ["🌤️", `今日天气 · ${location}`, `${desc}，约 ${temp}。${weatherSentence(weather)} `],
         ["🍵", "今日补给", supplySentence(weather, hour)],
         ["🎧", "今日旋律", `推荐 ${song[0]} - ${song[1]}。${musicSentence(weather, hour)}`],
-        ["📮", "今日任务", taskSentence(ctx, hour, seasonItem.words[seed % seasonItem.words.length])]
+        ["📮", "今日任务", taskSentence(fortuneCtx, hour, seasonItem.words[seed % seasonItem.words.length])]
       ];
     }
 
@@ -1357,15 +1359,16 @@
     function posterContextLine() {
       const ctx = state.localContext;
       if (!ctx) return "正在获取位置与天气";
-      const location = locationLabel(ctx) || "本地位置";
-      if (!ctx.weather) return `${location} · 天气获取中`;
-      const desc = weatherDescription(ctx.weather.code);
-      const temp = Number.isFinite(ctx.weather.temperature) ? `${Math.round(ctx.weather.temperature)}°C` : "温度未知";
+      const location = trustedLocationLabel(ctx) || "位置待确认";
+      const weather = trustedLocationLabel(ctx) ? ctx.weather : null;
+      if (!weather) return `${location} · 请先校准城市`;
+      const desc = weatherDescription(weather.code);
+      const temp = Number.isFinite(weather.temperature) ? `${Math.round(weather.temperature)}°C` : "温度未知";
       return `${location} · ${desc} · ${temp}`;
     }
 
     function getPosterTheme() {
-      const weather = state.localContext?.weather;
+      const weather = trustedLocationLabel(state.localContext) ? state.localContext?.weather : null;
       if (weather && isRainy(weather.code)) {
         return { a: "#eef7ff", b: "#f8f2ff", c: "#e8f9f3", accent: "#5275d8", soft: "rgba(82,117,216,.13)", glow: "rgba(47,158,143,.12)" };
       }
@@ -1499,22 +1502,25 @@
     function updateLocationPanel() {
       const ctx = state.localContext;
       const label = locationLabel(ctx);
+      const trustedLabel = trustedLocationLabel(ctx);
       const sourceMap = {
         gps: "来自手机定位，准确度最高",
         manual: "来自你保存的城市，已在本机记住",
-        ip: "来自 IP 粗略定位，运营商出口可能导致误差",
+        ip: "浏览器没有给定位权限，请输入城市后保存；IP 结果只作参考，不会当成准确地址。",
         amap: "来自高德地图定位服务",
         baidu: "来自百度地图定位服务",
         unknown: "暂时没有拿到可靠位置"
       };
       if ($("locationTitle")) {
-        $("locationTitle").textContent = label || "位置待确认";
+        $("locationTitle").textContent = trustedLabel || "位置待确认";
       }
       if ($("locationStatus")) {
         $("locationStatus").textContent = sourceMap[ctx?.source] || "正在校准位置";
       }
-      if ($("locationInput") && label) {
-        $("locationInput").placeholder = `当前：${label}`;
+      if ($("locationInput")) {
+        $("locationInput").placeholder = trustedLabel
+          ? `当前：${trustedLabel}`
+          : "输入城市，如：信阳市";
       }
     }
 
@@ -1571,6 +1577,11 @@
         .map((part) => String(part).trim())
         .filter((part, index, arr) => part && arr.indexOf(part) === index);
       return parts.join(" · ");
+    }
+
+    function trustedLocationLabel(ctx) {
+      if (!ctx || ctx.source === "ip" || ctx.source === "unknown") return "";
+      return locationLabel(ctx);
     }
 
     async function fetchIpLocation() {
