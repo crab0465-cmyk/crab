@@ -2103,7 +2103,7 @@
       const canvas = await createDiaryPosterCanvas({
         title: "Crab bless you",
         subtitle: `心情日记 · ${dateLabel()} ${timeLabel()}`,
-        body: text || "今日图片日记",
+        body: text,
         photos: state.diaryPhotos
       });
       const file = await canvasToFile(canvas, `diary-share-${Date.now()}.png`);
@@ -2152,7 +2152,7 @@
       const canvas = await createDiaryPosterCanvas({
         title: "Crab bless you",
         subtitle: `心情日记 · ${dateLabel()} ${timeLabel()}`,
-        body: text || "今日图片日记",
+        body: text,
         photos: state.diaryPhotos
       });
       await saveCanvasToAlbum(canvas, `diary-${Date.now()}.png`);
@@ -2167,7 +2167,7 @@
       const canvas = await createDiaryPosterCanvas({
         title: "Crab bless you",
         subtitle: `心情日记 · ${record.date}`,
-        body: record.text || "今日图片日记",
+        body: record.text || "",
         photos: record.photos || []
       });
       await saveCanvasToAlbum(canvas, `diary-${record.id}.png`);
@@ -2200,9 +2200,11 @@
       drawText(ctx, title, 96, 140, 50, 1000, 1.2, "700");
       drawText(ctx, subtitle, 96, 218, 30, 1000, 1.4, "400", "#746979");
       drawText(ctx, posterContextLine(), 96, 270, 26, 1000, 1.4, "400", theme.accent);
-      let y = drawText(ctx, body, 96, 365, 44, 1000, 1.65, "400", "#2f2a35");
+      let y = 365;
+      if (body && body.trim()) {
+        y = drawText(ctx, body, 96, y, 44, 1000, 1.65, "400", "#2f2a35") + 48;
+      }
       if (photos && photos.length) {
-        y += 48;
         await drawPosterPhotos(ctx, photos, 96, y, 1000);
       }
       drawText(ctx, "Crab bless you", 96, canvas.height - 92, 28, 1000, 1.4, "700", theme.accent);
