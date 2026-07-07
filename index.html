@@ -9,7 +9,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <title>专属祝福小屋</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="preconnect" href="https://images.unsplash.com" />
   <style>
     :root {
       --ink: #2f2a35;
@@ -22,6 +21,14 @@
       --cool: #7b8fe8;
       --shadow: 0 18px 54px rgba(65, 49, 78, .18);
       --radius: 18px;
+      --sky-1: #fff3f8;
+      --sky-2: #eaf8f1;
+      --sky-3: #fff8df;
+      --scene-a: #ff9abf;
+      --scene-b: #66c7a8;
+      --scene-c: #ffd36e;
+      --scene-d: #9cc8ff;
+      --season-mark: "Spring";
     }
 
     * { box-sizing: border-box; }
@@ -70,12 +77,12 @@
       position: fixed;
       inset: 0;
       z-index: -2;
-      background-image:
-        linear-gradient(90deg, rgba(255,255,255,.74), rgba(255,255,255,.26)),
-        url("https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=1800&q=80");
+      background:
+        radial-gradient(circle at 14% 16%, rgba(255, 255, 255, .86), transparent 16rem),
+        radial-gradient(circle at 78% 12%, color-mix(in srgb, var(--scene-c) 42%, transparent), transparent 18rem),
+        radial-gradient(circle at 20% 82%, color-mix(in srgb, var(--scene-a) 36%, transparent), transparent 20rem),
+        linear-gradient(135deg, var(--sky-1) 0%, var(--sky-2) 48%, var(--sky-3) 100%);
       background-size: cover;
-      background-position: center;
-      filter: saturate(.98);
     }
 
     .hero::after {
@@ -84,9 +91,9 @@
       inset: 0;
       z-index: -1;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.72)),
-        radial-gradient(circle at 75% 16%, rgba(47, 158, 143, .18), transparent 22rem),
-        radial-gradient(circle at 18% 76%, rgba(217, 70, 135, .16), transparent 20rem);
+        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.58)),
+        radial-gradient(ellipse at 50% 102%, rgba(255,255,255,.86) 0 24%, transparent 24.5%),
+        repeating-linear-gradient(90deg, transparent 0 36px, rgba(255,255,255,.2) 36px 38px);
     }
 
     .brand {
@@ -117,6 +124,138 @@
       color: #514857;
       font-size: clamp(17px, 2vw, 21px);
       line-height: 1.9;
+    }
+
+    .season-scene {
+      position: relative;
+      width: min(520px, 100%);
+      min-height: 164px;
+      margin-top: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .76);
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at 18% 22%, rgba(255,255,255,.88), transparent 4.8rem),
+        linear-gradient(180deg, rgba(255,255,255,.64), rgba(255,255,255,.3));
+      box-shadow: 0 16px 42px rgba(65, 49, 78, .14);
+      backdrop-filter: blur(12px);
+    }
+
+    .season-scene::before {
+      content: var(--season-mark);
+      position: absolute;
+      left: 18px;
+      top: 14px;
+      color: color-mix(in srgb, var(--accent) 78%, #4b2e3d);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .season-scene::after {
+      content: "";
+      position: absolute;
+      inset: auto -20px -22px -20px;
+      height: 74px;
+      background:
+        radial-gradient(ellipse at 18% 0, var(--scene-b) 0 36%, transparent 37%),
+        radial-gradient(ellipse at 52% 8%, color-mix(in srgb, var(--scene-b) 74%, white) 0 42%, transparent 43%),
+        radial-gradient(ellipse at 84% 2%, color-mix(in srgb, var(--scene-c) 74%, white) 0 38%, transparent 39%);
+      opacity: .9;
+    }
+
+    .scene-sun, .scene-house, .scene-tree, .scene-cloud {
+      position: absolute;
+      display: block;
+    }
+
+    .scene-sun {
+      right: 34px;
+      top: 24px;
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: var(--scene-c);
+      box-shadow: 0 0 0 12px color-mix(in srgb, var(--scene-c) 20%, transparent);
+    }
+
+    .scene-cloud {
+      left: 116px;
+      top: 34px;
+      width: 96px;
+      height: 34px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .82);
+      box-shadow: 28px -12px 0 2px rgba(255,255,255,.72), 54px 2px 0 -4px rgba(255,255,255,.74);
+    }
+
+    .scene-house {
+      left: 50%;
+      bottom: 42px;
+      width: 94px;
+      height: 66px;
+      transform: translateX(-50%);
+      border: 3px solid rgba(47, 42, 53, .12);
+      border-radius: 12px 12px 10px 10px;
+      background: rgba(255,255,255,.88);
+      box-shadow: 0 12px 0 rgba(47,42,53,.04);
+    }
+
+    .scene-house::before {
+      content: "";
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: -34px;
+      height: 58px;
+      transform: rotate(45deg);
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--scene-a), var(--scene-c));
+      z-index: -1;
+    }
+
+    .scene-house::after {
+      content: "";
+      position: absolute;
+      left: 38px;
+      bottom: 0;
+      width: 22px;
+      height: 34px;
+      border-radius: 9px 9px 0 0;
+      background: color-mix(in srgb, var(--accent) 72%, #fff);
+    }
+
+    .scene-tree {
+      left: calc(50% + 86px);
+      bottom: 48px;
+      width: 18px;
+      height: 58px;
+      border-radius: 999px;
+      background: #9a7154;
+    }
+
+    .scene-tree::before,
+    .scene-tree::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      border-radius: 50%;
+      transform: translateX(-50%);
+      background: var(--scene-b);
+    }
+
+    .scene-tree::before {
+      top: -34px;
+      width: 70px;
+      height: 70px;
+    }
+
+    .scene-tree::after {
+      top: -50px;
+      width: 48px;
+      height: 48px;
+      background: var(--scene-a);
+      opacity: .84;
     }
 
     .hero-stats {
@@ -704,18 +843,42 @@
     body.summer {
       --accent: #159a8d;
       --accent-2: #e3a536;
+      --sky-1: #e8fbff;
+      --sky-2: #e9faef;
+      --sky-3: #fff4bd;
+      --scene-a: #ff9f5f;
+      --scene-b: #39b891;
+      --scene-c: #ffd34f;
+      --scene-d: #62c9f4;
+      --season-mark: "Summer";
       background: linear-gradient(135deg, #eafaf6, #fff8d8);
     }
 
     body.autumn {
       --accent: #b7652f;
       --accent-2: #bc3f56;
+      --sky-1: #fff0d9;
+      --sky-2: #ffe5dc;
+      --sky-3: #fff8e8;
+      --scene-a: #d86b48;
+      --scene-b: #d99b3d;
+      --scene-c: #f6c46c;
+      --scene-d: #c8534c;
+      --season-mark: "Autumn";
       background: linear-gradient(135deg, #fff4dc, #fae6e2);
     }
 
     body.winter {
       --accent: #5275d8;
       --accent-2: #54a7bd;
+      --sky-1: #eef6ff;
+      --sky-2: #f6f1ff;
+      --sky-3: #eefcff;
+      --scene-a: #8da8ff;
+      --scene-b: #d9ecff;
+      --scene-c: #b8e7ff;
+      --scene-d: #7bbfe0;
+      --season-mark: "Winter";
       background: linear-gradient(135deg, #eef5ff, #f7eefb);
     }
 
@@ -781,6 +944,12 @@
           <div class="stat"><strong>∞</strong><span>任意名字生成专属文案</span></div>
           <div class="stat"><strong>本地</strong><span>日记和收藏不会上传</span></div>
         </div>
+        <div class="season-scene" aria-hidden="true">
+          <span class="scene-sun"></span>
+          <span class="scene-cloud"></span>
+          <span class="scene-house"></span>
+          <span class="scene-tree"></span>
+        </div>
       </div>
 
       <section class="panel generator" aria-label="祝福生成器">
@@ -841,7 +1010,6 @@
       <section class="panel section">
         <div class="section-head">
           <h2>幸运小签</h2>
-          <button class="backup-btn" id="preciseLocationBtn" type="button">精确定位</button>
         </div>
         <div class="fortune-list" id="fortuneList"></div>
         <div class="favorites" id="favorites"></div>
@@ -1288,53 +1456,24 @@
         const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?${params.toString()}`);
         if (!res.ok) return location;
         const data = await res.json();
+        const administrative = Array.isArray(data.localityInfo?.administrative)
+          ? data.localityInfo.administrative
+          : [];
+        const district = administrative
+          .filter((item) => Number(item.adminLevel) >= 6 && item.name)
+          .map((item) => item.name)
+          .reverse()
+          .find((name) => ![data.countryName, data.principalSubdivision, data.city, data.locality, location.city, location.region].includes(name));
         return {
           ...location,
           country: data.countryName || location.country || "",
           region: data.principalSubdivision || location.region || "",
           city: data.city || location.city || data.locality || "",
-          district: data.localityInfo?.administrative?.find((item) => item.adminLevel >= 8)?.name || "",
+          district: district || "",
           locality: data.locality || ""
         };
       } catch (error) {
         return location;
-      }
-    }
-
-    function getBrowserPosition() {
-      return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error("geolocation unavailable"));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 300000
-        });
-      });
-    }
-
-    async function usePreciseLocation() {
-      try {
-        showToast("正在请求精确定位");
-        const position = await getBrowserPosition();
-        const base = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          country: "",
-          region: "",
-          city: "",
-          district: "",
-          locality: ""
-        };
-        const location = await enrichLocation(base);
-        const weather = await fetchLocalWeather(base.latitude, base.longitude);
-        state.localContext = { ...location, weather, source: "gps" };
-        renderFortunes(state.fortuneSeed || 12);
-        showToast("已更新为更精确的位置");
-      } catch (error) {
-        showToast("无法获取精确定位，可检查浏览器定位权限");
       }
     }
 
@@ -2144,7 +2283,6 @@
     $("saveWishImageBtn").addEventListener("click", saveWishImage);
     $("saveBtn").addEventListener("click", saveFavorite);
     $("exportBtn").addEventListener("click", exportData);
-    $("preciseLocationBtn").addEventListener("click", usePreciseLocation);
     $("addPhotoBtn").addEventListener("click", pickPhotos);
     $("photoInput").addEventListener("change", handlePhotos);
     $("shareDiaryBtn").addEventListener("click", shareDiaryDraft);
