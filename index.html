@@ -2054,7 +2054,7 @@
 
     async function copyWish() {
       try {
-        await navigator.clipboard.writeText(currentShareText());
+        await copyText(currentShareText());
         showToast("祝福已复制");
       } catch (error) {
         showToast("浏览器暂时不允许复制");
@@ -2071,7 +2071,7 @@
         footer: state.current.tags.join(" · ")
       });
       const file = await canvasToFile(canvas, `blessing-share-${Date.now()}.png`);
-      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      if (canNativeShareFiles(file)) {
         try {
           await navigator.share({
             title: "专属祝福",
@@ -2085,7 +2085,7 @@
         }
       }
       try {
-        await navigator.clipboard.writeText(text);
+        await copyText(text);
         showAlbumPreview(file);
         showToast("已复制文案，长按图片可分享或保存");
       } catch (error) {
@@ -2107,7 +2107,7 @@
         photos: state.diaryPhotos
       });
       const file = await canvasToFile(canvas, `diary-share-${Date.now()}.png`);
-      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      if (canNativeShareFiles(file)) {
         try {
           await navigator.share({
             title: "心情日记",
@@ -2121,7 +2121,7 @@
         }
       }
       try {
-        await navigator.clipboard.writeText(shareText);
+        await copyText(shareText);
         showAlbumPreview(file);
         showToast("已复制文字，长按图片可分享或保存");
       } catch (error) {
@@ -2348,18 +2348,59 @@
     }
 
     function canvasToBlob(canvas) {
-      return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
+      return new Promise((resolve) => {
+        if (canvas.toBlob) {
+          canvas.toBlob((blob) => resolve(blob), "image/png", 1);
+          return;
+        }
+        const dataUrl = canvas.toDataURL("image/png");
+        const parts = dataUrl.split(",");
+        const mime = parts[0].match(/:(.*?);/)?.[1] || "image/png";
+        const binary = atob(parts[1]);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        resolve(new Blob([bytes], { type: mime }));
+      });
     }
 
     async function canvasToFile(canvas, filename) {
       const blob = await canvasToBlob(canvas);
-      return new File([blob], filename, { type: "image/png" });
+      if (typeof File === "function") {
+        return new File([blob], filename, { type: "image/png" });
+      }
+      blob.name = filename;
+      blob.lastModified = Date.now();
+      return blob;
+    }
+
+    function canNativeShareFiles(file) {
+      return typeof File === "function"
+        && file instanceof File
+        && navigator.canShare
+        && navigator.canShare({ files: [file] })
+        && navigator.share;
+    }
+
+    async function copyText(text) {
+      if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const ok = document.execCommand("copy");
+      textarea.remove();
+      if (!ok) throw new Error("copy unavailable");
     }
 
     async function saveCanvasToAlbum(canvas, filename) {
       const file = await canvasToFile(canvas, filename);
       state.albumFile = file;
-      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      if (canNativeShareFiles(file)) {
         try {
           await navigator.share({
             title: "保存到相册",
@@ -2378,10 +2419,23 @@
       showAlbumPreview(file);
     }
 
-    function showAlbumPreview(file) {
+    async function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function showAlbumPreview(file) {
       if (state.albumUrl) URL.revokeObjectURL(state.albumUrl);
       state.albumFile = file;
-      state.albumUrl = URL.createObjectURL(file);
+      try {
+        state.albumUrl = await blobToDataUrl(file);
+      } catch (error) {
+        state.albumUrl = URL.createObjectURL(file);
+      }
       $("albumPreview").src = state.albumUrl;
       $("albumSheet").classList.add("show");
       $("albumSheet").setAttribute("aria-hidden", "false");
@@ -2398,9 +2452,14 @@
       const url = state.albumUrl || URL.createObjectURL(state.albumFile);
       const link = document.createElement("a");
       link.href = url;
-      link.download = state.albumFile.name;
-      link.click();
-      showToast("图片已保存/下载，也可长按图片保存到相册");
+      link.download = state.albumFile.name || `crab-blessing-${Date.now()}.png`;
+      if ("download" in link) {
+        link.click();
+        showToast("图片已保存/下载，也可长按图片保存到相册");
+      } else {
+        window.open(url, "_blank");
+        showToast("已打开图片，长按可保存到相册");
+      }
     }
 
     function storageGet(key) {
