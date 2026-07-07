@@ -887,6 +887,46 @@
       display: grid;
     }
 
+    .location-prompt {
+      position: fixed;
+      inset: 0;
+      z-index: 34;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(31, 28, 36, .58);
+    }
+
+    .location-prompt.show {
+      display: grid;
+    }
+
+    .location-prompt-panel {
+      width: min(390px, 100%);
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.97);
+      box-shadow: var(--shadow);
+    }
+
+    .location-prompt-panel h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+
+    .location-prompt-panel p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    .location-prompt-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
     .album-panel {
       width: min(430px, 100%);
       max-height: 92vh;
@@ -1190,6 +1230,16 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="location-prompt" id="locationPrompt" aria-hidden="true">
+    <div class="location-prompt-panel" role="dialog" aria-modal="true" aria-labelledby="locationPromptTitle">
+      <h2 id="locationPromptTitle">要开启手机定位吗？</h2>
+      <p>开启后可以更准确地生成本地天气、幸运小签和保存海报。不同意也可以手动输入城市，例如：河南省信阳市罗山县。</p>
+      <div class="location-prompt-actions">
+        <button class="primary" id="allowLocationBtn" type="button">开启定位</button>
+        <button class="secondary" id="skipLocationBtn" type="button">手动输入</button>
+      </div>
+    </div>
+  </div>
   <div class="album-sheet" id="albumSheet" aria-hidden="true">
     <div class="album-panel" role="dialog" aria-modal="true" aria-labelledby="albumTitle">
       <h2 id="albumTitle">保存到相册</h2>
@@ -1600,6 +1650,13 @@
         refreshSavedLocationWeather(saved);
         return;
       }
+      if (shouldShowLocationPrompt()) {
+        state.localContext = { city: "", region: "", weather: null, source: "unknown" };
+        updateLocationPanel();
+        renderFortunes(state.fortuneSeed || 12);
+        showLocationPrompt();
+        return;
+      }
       const precise = await loadDeviceLocation({ silent: true });
       if (precise) return;
       try {
@@ -1623,6 +1680,40 @@
         updateLocationPanel();
         renderFortunes(state.fortuneSeed || 12);
       }
+    }
+
+    function isMobileBrowser() {
+      return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent);
+    }
+
+    function shouldShowLocationPrompt() {
+      return isMobileBrowser() && localStorage.getItem("blessing:locationPrompt") !== "done";
+    }
+
+    function showLocationPrompt() {
+      $("locationPrompt").classList.add("show");
+      $("locationPrompt").setAttribute("aria-hidden", "false");
+    }
+
+    function closeLocationPrompt() {
+      $("locationPrompt").classList.remove("show");
+      $("locationPrompt").setAttribute("aria-hidden", "true");
+    }
+
+    async function acceptLocationPrompt() {
+      localStorage.setItem("blessing:locationPrompt", "done");
+      closeLocationPrompt();
+      const ok = await loadDeviceLocation({ silent: false });
+      if (!ok) {
+        $("locationInput").focus();
+      }
+    }
+
+    function skipLocationPrompt() {
+      localStorage.setItem("blessing:locationPrompt", "done");
+      closeLocationPrompt();
+      $("locationInput").focus();
+      showToast("可以输入省市县后保存");
     }
 
     function readSavedLocation() {
@@ -1800,9 +1891,10 @@
     }
 
     async function searchLocationByCity(query) {
-      const keyword = normalizeLocationQuery(query);
+      const rawKeyword = String(query || "").trim();
+      const keyword = normalizeLocationQuery(rawKeyword);
       if (!keyword) throw new Error("empty location");
-      const preset = getChinaLocationPreset(keyword);
+      const preset = getChinaLocationPreset(`${rawKeyword} ${keyword}`);
       if (preset) return preset;
       if (/[\u4e00-\u9fa5]/.test(keyword)) {
         try {
@@ -1848,12 +1940,24 @@
       if (!cleaned) return "";
       const cityMatch = cleaned.match(/([\u4e00-\u9fa5]{2,12}市)/);
       const countyMatch = cleaned.match(/([\u4e00-\u9fa5]{2,12}[县区])/);
-      return cityMatch?.[1] || countyMatch?.[1] || cleaned.replace(/\s/g, "");
+      return countyMatch?.[1] || cityMatch?.[1] || cleaned.replace(/\s/g, "");
     }
 
     function getChinaLocationPreset(keyword) {
       const key = keyword.replace(/\s/g, "");
       const presets = [
+        {
+          match: /罗山|罗山县/,
+          value: {
+            latitude: 32.20314,
+            longitude: 114.51302,
+            country: "中国",
+            region: "河南省",
+            city: "信阳市",
+            district: "罗山县",
+            locality: ""
+          }
+        },
         {
           match: /信阳|信阳市/,
           value: {
@@ -2732,6 +2836,8 @@
     $("locationInput").addEventListener("keydown", (event) => {
       if (event.key === "Enter") saveManualLocation();
     });
+    $("allowLocationBtn").addEventListener("click", acceptLocationPrompt);
+    $("skipLocationBtn").addEventListener("click", skipLocationPrompt);
     $("addPhotoBtn").addEventListener("click", pickPhotos);
     $("photoInput").addEventListener("change", handlePhotos);
     $("shareDiaryBtn").addEventListener("click", shareDiaryDraft);
