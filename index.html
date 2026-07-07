@@ -1634,6 +1634,11 @@
     async function searchLocationByCity(query) {
       const keyword = query.trim();
       if (!keyword) throw new Error("empty location");
+      if (/[\u4e00-\u9fa5]/.test(keyword)) {
+        try {
+          return await searchNominatimLocation(keyword);
+        } catch (error) {}
+      }
       const params = new URLSearchParams({
         name: keyword,
         count: "1",
@@ -1661,6 +1666,33 @@
         city: enriched.city || base.city,
         region: enriched.region || base.region,
         district: enriched.district || base.district
+      };
+    }
+
+    async function searchNominatimLocation(query) {
+      const normalized = /市|县|区|省/.test(query) ? query : `${query}市`;
+      const params = new URLSearchParams({
+        q: `${normalized}, 中国`,
+        format: "jsonv2",
+        limit: "1",
+        addressdetails: "1",
+        "accept-language": "zh-CN"
+      });
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
+      if (!res.ok) throw new Error("nominatim unavailable");
+      const data = await res.json();
+      const place = data?.[0];
+      if (!place) throw new Error("location not found");
+      const address = place.address || {};
+      const city = address.city || address.town || address.county || normalized.replace(/,?\s*中国$/, "");
+      return {
+        latitude: Number(place.lat),
+        longitude: Number(place.lon),
+        country: address.country || "中国",
+        region: address.state || address.province || "",
+        city,
+        district: address.county && address.county !== city ? address.county : "",
+        locality: address.suburb || address.quarter || ""
       };
     }
 
