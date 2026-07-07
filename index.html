@@ -1233,7 +1233,7 @@
   <div class="location-prompt" id="locationPrompt" aria-hidden="true">
     <div class="location-prompt-panel" role="dialog" aria-modal="true" aria-labelledby="locationPromptTitle">
       <h2 id="locationPromptTitle">要开启手机定位吗？</h2>
-      <p>开启后可以更准确地生成本地天气、幸运小签和保存海报。不同意也可以手动输入城市，例如：河南省信阳市罗山县。</p>
+      <p>开启后可以更准确地生成本地天气、幸运小签和保存海报。若手机没有弹出授权框，请在系统设置里允许当前浏览器使用定位；也可以手动输入城市，例如：河南省信阳市罗山县。</p>
       <div class="location-prompt-actions">
         <button class="primary" id="allowLocationBtn" type="button">开启定位</button>
         <button class="secondary" id="skipLocationBtn" type="button">手动输入</button>
@@ -1767,18 +1767,30 @@
       }
     }
 
-    function getBrowserPosition() {
+    function requestPosition(options) {
       return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
           reject(new Error("geolocation unavailable"));
           return;
         }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+      });
+    }
+
+    async function getBrowserPosition() {
+      try {
+        return await requestPosition({
           enableHighAccuracy: true,
-          timeout: 12000,
+          timeout: 15000,
           maximumAge: 180000
         });
-      });
+      } catch (error) {
+        return requestPosition({
+          enableHighAccuracy: false,
+          timeout: 22000,
+          maximumAge: 600000
+        });
+      }
     }
 
     async function loadDeviceLocation(options = {}) {
@@ -1805,12 +1817,28 @@
       } catch (error) {
         if (!options.silent) {
           if ($("locationStatus")) {
-            $("locationStatus").textContent = "浏览器没有给定位权限，可输入城市后保存，效果会用于天气和海报。";
+            $("locationStatus").textContent = locationErrorMessage(error);
           }
-          showToast("定位未授权，可输入城市手动修正");
+          showToast("定位没有成功，可输入城市手动修正");
         }
         return false;
       }
+    }
+
+    function locationErrorMessage(error) {
+      if (!navigator.geolocation) {
+        return "这个浏览器不支持网页定位，可输入城市后保存，效果会用于天气和海报。";
+      }
+      if (error?.code === 1) {
+        return "浏览器或系统拒绝了定位权限；可在浏览器设置里允许定位，或输入城市后保存。";
+      }
+      if (error?.code === 2) {
+        return "手机暂时拿不到定位信号；可打开系统定位/GPS 后重试，或输入城市后保存。";
+      }
+      if (error?.code === 3) {
+        return "定位请求超时；已尝试普通定位，可换网络或输入城市后保存。";
+      }
+      return "当前浏览器没有完成定位，可输入城市后保存，效果会用于天气和海报。";
     }
 
     function locationLabel(ctx) {
@@ -1884,6 +1912,34 @@
           city: data.city || location.city || data.locality || "",
           district: district || "",
           locality: data.locality || ""
+        };
+      } catch (error) {
+        return reverseNominatimLocation(location);
+      }
+    }
+
+    async function reverseNominatimLocation(location) {
+      try {
+        const params = new URLSearchParams({
+          lat: String(location.latitude),
+          lon: String(location.longitude),
+          format: "jsonv2",
+          addressdetails: "1",
+          "accept-language": "zh-CN"
+        });
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
+        if (!res.ok) return location;
+        const data = await res.json();
+        const address = data.address || {};
+        const city = address.city || address.town || address.county || location.city || "";
+        const district = address.county && address.county !== city ? address.county : (address.suburb || location.district || "");
+        return {
+          ...location,
+          country: address.country || location.country || "中国",
+          region: address.state || address.province || location.region || "",
+          city,
+          district,
+          locality: address.suburb || address.village || location.locality || ""
         };
       } catch (error) {
         return location;
