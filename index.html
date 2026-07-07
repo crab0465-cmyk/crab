@@ -544,6 +544,43 @@
       gap: 10px;
     }
 
+    .location-card {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,.58);
+    }
+
+    .location-card strong {
+      display: block;
+      font-size: 14px;
+      color: var(--ink);
+    }
+
+    .location-card span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .location-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .location-tools input {
+      height: 38px;
+      border-radius: 11px;
+      font-size: 13px;
+    }
+
     .fortune {
       display: grid;
       grid-template-columns: 46px minmax(0, 1fr);
@@ -918,6 +955,10 @@
         grid-template-columns: 1fr;
       }
 
+      .location-tools {
+        grid-template-columns: 1fr;
+      }
+
       .theme-grid {
         grid-template-columns: 1fr;
       }
@@ -1010,6 +1051,17 @@
       <section class="panel section">
         <div class="section-head">
           <h2>幸运小签</h2>
+        </div>
+        <div class="location-card">
+          <div>
+            <strong id="locationTitle">正在校准当前位置</strong>
+            <span id="locationStatus">会优先使用手机定位；若没有授权，则只用 IP 粗略判断。</span>
+          </div>
+          <div class="location-tools">
+            <input id="locationInput" type="text" maxlength="24" placeholder="位置不准时输入城市，如：信阳" />
+            <button class="backup-btn" id="useDeviceLocationBtn" type="button">手机定位</button>
+            <button class="backup-btn" id="saveLocationBtn" type="button">保存城市</button>
+          </div>
         </div>
         <div class="fortune-list" id="fortuneList"></div>
         <div class="favorites" id="favorites"></div>
@@ -1385,6 +1437,16 @@
     }
 
     async function loadLocalContext() {
+      const saved = readSavedLocation();
+      if (saved) {
+        state.localContext = saved;
+        updateLocationPanel();
+        renderFortunes(state.fortuneSeed || 12);
+        refreshSavedLocationWeather(saved);
+        return;
+      }
+      const precise = await loadDeviceLocation({ silent: true });
+      if (precise) return;
       try {
         const location = await fetchIpLocation();
         const enriched = location.latitude && location.longitude
@@ -1394,14 +1456,106 @@
           ? await fetchLocalWeather(location.latitude, location.longitude)
           : null;
         state.localContext = { ...enriched, weather, source: "ip" };
+        updateLocationPanel();
         renderFortunes(state.fortuneSeed || 12);
       } catch (error) {
         state.localContext = {
           city: "",
           region: "",
-          weather: null
+          weather: null,
+          source: "unknown"
         };
+        updateLocationPanel();
         renderFortunes(state.fortuneSeed || 12);
+      }
+    }
+
+    function readSavedLocation() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("blessing:location") || "null");
+        if (!saved || !saved.latitude || !saved.longitude) return null;
+        return saved;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function saveLocationContext(location) {
+      try {
+        localStorage.setItem("blessing:location", JSON.stringify(location));
+      } catch (error) {}
+    }
+
+    async function refreshSavedLocationWeather(location) {
+      try {
+        const weather = await fetchLocalWeather(location.latitude, location.longitude);
+        state.localContext = { ...location, weather };
+        saveLocationContext(state.localContext);
+        updateLocationPanel();
+        renderFortunes(state.fortuneSeed || 12);
+      } catch (error) {}
+    }
+
+    function updateLocationPanel() {
+      const ctx = state.localContext;
+      const label = locationLabel(ctx);
+      const sourceMap = {
+        gps: "来自手机定位，准确度最高",
+        manual: "来自你保存的城市，已在本机记住",
+        ip: "来自 IP 粗略定位，运营商出口可能导致误差",
+        amap: "来自高德地图定位服务",
+        baidu: "来自百度地图定位服务",
+        unknown: "暂时没有拿到可靠位置"
+      };
+      if ($("locationTitle")) {
+        $("locationTitle").textContent = label || "位置待确认";
+      }
+      if ($("locationStatus")) {
+        $("locationStatus").textContent = sourceMap[ctx?.source] || "正在校准位置";
+      }
+      if ($("locationInput") && label) {
+        $("locationInput").placeholder = `当前：${label}`;
+      }
+    }
+
+    function getBrowserPosition() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("geolocation unavailable"));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 180000
+        });
+      });
+    }
+
+    async function loadDeviceLocation(options = {}) {
+      try {
+        if (!options.silent) showToast("正在请求手机定位授权");
+        const position = await getBrowserPosition();
+        const base = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          country: "",
+          region: "",
+          city: "",
+          district: "",
+          locality: ""
+        };
+        const location = await enrichLocation(base);
+        const weather = await fetchLocalWeather(base.latitude, base.longitude);
+        state.localContext = { ...location, weather, source: "gps" };
+        saveLocationContext(state.localContext);
+        updateLocationPanel();
+        renderFortunes(state.fortuneSeed || 12);
+        if (!options.silent) showToast("已使用手机定位更新地址");
+        return true;
+      } catch (error) {
+        if (!options.silent) showToast("定位未授权，可输入城市手动修正");
+        return false;
       }
     }
 
@@ -1474,6 +1628,61 @@
         };
       } catch (error) {
         return location;
+      }
+    }
+
+    async function searchLocationByCity(query) {
+      const keyword = query.trim();
+      if (!keyword) throw new Error("empty location");
+      const params = new URLSearchParams({
+        name: keyword,
+        count: "1",
+        language: "zh",
+        format: "json"
+      });
+      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`);
+      if (!res.ok) throw new Error("geocoding unavailable");
+      const data = await res.json();
+      const place = data.results?.[0];
+      if (!place) throw new Error("location not found");
+      const base = {
+        latitude: Number(place.latitude),
+        longitude: Number(place.longitude),
+        country: place.country || "中国",
+        region: place.admin1 || "",
+        city: place.name || keyword,
+        district: place.admin2 || "",
+        locality: ""
+      };
+      const enriched = await enrichLocation(base);
+      return {
+        ...base,
+        ...enriched,
+        city: enriched.city || base.city,
+        region: enriched.region || base.region,
+        district: enriched.district || base.district
+      };
+    }
+
+    async function saveManualLocation() {
+      const input = $("locationInput");
+      const keyword = input.value.trim();
+      if (!keyword) {
+        showToast("请输入城市名，比如：信阳");
+        return;
+      }
+      try {
+        showToast("正在校准城市");
+        const location = await searchLocationByCity(keyword);
+        const weather = await fetchLocalWeather(location.latitude, location.longitude);
+        state.localContext = { ...location, weather, source: "manual" };
+        saveLocationContext(state.localContext);
+        input.value = "";
+        updateLocationPanel();
+        renderFortunes(state.fortuneSeed || 12);
+        showToast("位置已保存到本机");
+      } catch (error) {
+        showToast("没有找到这个城市，请换成省市名再试");
       }
     }
 
@@ -2283,6 +2492,11 @@
     $("saveWishImageBtn").addEventListener("click", saveWishImage);
     $("saveBtn").addEventListener("click", saveFavorite);
     $("exportBtn").addEventListener("click", exportData);
+    $("useDeviceLocationBtn").addEventListener("click", () => loadDeviceLocation({ silent: false }));
+    $("saveLocationBtn").addEventListener("click", saveManualLocation);
+    $("locationInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") saveManualLocation();
+    });
     $("addPhotoBtn").addEventListener("click", pickPhotos);
     $("photoInput").addEventListener("change", handlePhotos);
     $("shareDiaryBtn").addEventListener("click", shareDiaryDraft);
