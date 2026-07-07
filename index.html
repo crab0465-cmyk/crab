@@ -1554,7 +1554,12 @@
         if (!options.silent) showToast("已使用手机定位更新地址");
         return true;
       } catch (error) {
-        if (!options.silent) showToast("定位未授权，可输入城市手动修正");
+        if (!options.silent) {
+          if ($("locationStatus")) {
+            $("locationStatus").textContent = "浏览器没有给定位权限，可输入城市后保存，效果会用于天气和海报。";
+          }
+          showToast("定位未授权，可输入城市手动修正");
+        }
         return false;
       }
     }
@@ -1632,8 +1637,10 @@
     }
 
     async function searchLocationByCity(query) {
-      const keyword = query.trim();
+      const keyword = normalizeLocationQuery(query);
       if (!keyword) throw new Error("empty location");
+      const preset = getChinaLocationPreset(keyword);
+      if (preset) return preset;
       if (/[\u4e00-\u9fa5]/.test(keyword)) {
         try {
           return await searchNominatimLocation(keyword);
@@ -1669,10 +1676,43 @@
       };
     }
 
+    function normalizeLocationQuery(query) {
+      const cleaned = String(query || "")
+        .replace(/中华人民共和国|中国|国内|当前位置|定位|地址|所在/g, " ")
+        .replace(/[，,。；;、|/\\]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!cleaned) return "";
+      const cityMatch = cleaned.match(/([\u4e00-\u9fa5]{2,12}市)/);
+      const countyMatch = cleaned.match(/([\u4e00-\u9fa5]{2,12}[县区])/);
+      return cityMatch?.[1] || countyMatch?.[1] || cleaned.replace(/\s/g, "");
+    }
+
+    function getChinaLocationPreset(keyword) {
+      const key = keyword.replace(/\s/g, "");
+      const presets = [
+        {
+          match: /信阳|信阳市/,
+          value: {
+            latitude: 32.14617,
+            longitude: 114.08521,
+            country: "中国",
+            region: "河南省",
+            city: "信阳市",
+            district: "",
+            locality: ""
+          }
+        }
+      ];
+      const found = presets.find((item) => item.match.test(key));
+      return found ? { ...found.value } : null;
+    }
+
     async function searchNominatimLocation(query) {
-      const normalized = /市|县|区|省/.test(query) ? query : `${query}市`;
+      const normalized = normalizeLocationQuery(query);
+      const searchName = /市|县|区|省/.test(normalized) ? normalized : `${normalized}市`;
       const params = new URLSearchParams({
-        q: `${normalized}, 中国`,
+        q: `${searchName}, 中国`,
         format: "jsonv2",
         limit: "1",
         addressdetails: "1",
@@ -1684,7 +1724,7 @@
       const place = data?.[0];
       if (!place) throw new Error("location not found");
       const address = place.address || {};
-      const city = address.city || address.town || address.county || normalized.replace(/,?\s*中国$/, "");
+      const city = address.city || address.town || address.county || searchName.replace(/,?\s*中国$/, "");
       return {
         latitude: Number(place.lat),
         longitude: Number(place.lon),
