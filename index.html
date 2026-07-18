@@ -606,6 +606,50 @@
       gap: 10px;
     }
 
+    .account-card {
+      display: grid;
+      gap: 12px;
+    }
+
+    .account-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .account-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+    }
+
+    .account-grid input {
+      height: 40px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
+
+    .account-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .cloud-pill {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255,255,255,.6);
+      font-size: 12px;
+    }
+
     .location-card {
       display: grid;
       gap: 10px;
@@ -1092,6 +1136,10 @@
         grid-template-columns: 1fr;
       }
 
+      .account-grid {
+        grid-template-columns: 1fr;
+      }
+
       .theme-grid {
         grid-template-columns: 1fr;
       }
@@ -1185,6 +1233,26 @@
     </section>
 
     <section class="content">
+      <section class="panel section account-card">
+        <div class="section-head">
+          <h2>个人账户</h2>
+          <span class="cloud-pill" id="cloudStatus">本地模式</span>
+        </div>
+        <p id="accountHint">登录后可把日记和收藏同步到云端。首次使用需要先配置 Supabase。</p>
+        <div class="account-grid" id="emailLoginRow">
+          <input id="emailInput" type="email" autocomplete="email" placeholder="输入邮箱，接收登录链接" />
+          <button class="primary" id="emailLoginBtn" type="button">发送登录链接</button>
+        </div>
+        <div class="account-grid" id="profileRow" style="display:none">
+          <input id="profileNameInput" type="text" maxlength="24" placeholder="你的昵称" />
+          <button class="secondary" id="saveProfileBtn" type="button">保存资料</button>
+        </div>
+        <div class="account-actions" id="accountActions" style="display:none">
+          <button class="secondary" id="syncCloudBtn" type="button">同步云端</button>
+          <button class="ghost" id="logoutBtn" type="button">退出登录</button>
+        </div>
+      </section>
+
       <section class="panel section">
         <div class="section-head">
           <h2>幸运小签</h2>
@@ -1252,7 +1320,12 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    const SUPABASE_URL = "";
+    const SUPABASE_ANON_KEY = "";
+    let cloudClient = null;
+
     const seasons = {
       spring: { label: "春", icon: "🌸", words: ["新芽", "花信", "轻风"], particles: ["🌸", "🌷", "🦋", "🌱"] },
       summer: { label: "夏", icon: "🌊", words: ["晴光", "汽水", "晚风"], particles: ["🌊", "🐦", "🍉", "✨"] },
@@ -1387,7 +1460,9 @@
       albumFile: null,
       albumUrl: "",
       localContext: null,
-      fortuneSeed: 12
+      fortuneSeed: 12,
+      user: null,
+      profile: null
     };
 
     const $ = (id) => document.getElementById(id);
@@ -2527,6 +2602,240 @@
       localStorage.setItem(key, JSON.stringify(value));
     }
 
+    function isCloudConfigured() {
+      return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase?.createClient);
+    }
+
+    async function initCloud() {
+      if (!isCloudConfigured()) {
+        updateAccountUi("未配置云端");
+        return;
+      }
+      cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true }
+      });
+      const { data } = await cloudClient.auth.getSession();
+      if (data.session?.user) await handleCloudUser(data.session.user);
+      else updateAccountUi("未登录");
+      cloudClient.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) await handleCloudUser(session.user);
+        else {
+          state.user = null;
+          state.profile = null;
+          updateAccountUi("未登录");
+        }
+      });
+    }
+
+    async function handleCloudUser(user) {
+      state.user = user;
+      await ensureCloudProfile();
+      await syncCloudData();
+      updateAccountUi("已登录");
+    }
+
+    function updateAccountUi(status) {
+      const configured = isCloudConfigured();
+      const signedIn = Boolean(state.user);
+      $("cloudStatus").textContent = configured ? (signedIn ? "云端已连接" : status) : "未配置云端";
+      $("accountHint").textContent = configured
+        ? (signedIn ? `当前账户：${state.user.email || "已登录"}` : "输入邮箱后会收到登录链接，打开链接即可登录。")
+        : "需要先在代码里填入 Supabase URL 和 anon key，并执行 cloud-schema.sql。";
+      $("emailLoginRow").style.display = configured && !signedIn ? "grid" : "none";
+      $("profileRow").style.display = configured && signedIn ? "grid" : "none";
+      $("accountActions").style.display = configured && signedIn ? "flex" : "none";
+      if (signedIn) $("profileNameInput").value = state.profile?.display_name || "";
+    }
+
+    async function sendEmailLogin() {
+      if (!cloudClient) {
+        showToast("云端未配置");
+        return;
+      }
+      const email = $("emailInput").value.trim();
+      if (!email) {
+        showToast("请输入邮箱");
+        return;
+      }
+      const { error } = await cloudClient.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: location.href.split("#")[0] }
+      });
+      if (error) {
+        showToast("发送失败，请检查邮箱或云端配置");
+        return;
+      }
+      showToast("登录链接已发送到邮箱");
+    }
+
+    async function logoutCloud() {
+      if (!cloudClient) return;
+      await cloudClient.auth.signOut();
+      state.user = null;
+      state.profile = null;
+      updateAccountUi("未登录");
+      showToast("已退出登录");
+    }
+
+    async function ensureCloudProfile() {
+      if (!cloudClient || !state.user) return;
+      const profile = {
+        id: state.user.id,
+        email: state.user.email || "",
+        display_name: state.profile?.display_name || "",
+        updated_at: new Date().toISOString()
+      };
+      await cloudClient.from("profiles").upsert(profile, { onConflict: "id" });
+      const { data } = await cloudClient.from("profiles").select("*").eq("id", state.user.id).single();
+      state.profile = data || profile;
+    }
+
+    async function saveProfile() {
+      if (!cloudClient || !state.user) return;
+      const displayName = $("profileNameInput").value.trim();
+      const { error } = await cloudClient.from("profiles").upsert({
+        id: state.user.id,
+        email: state.user.email || "",
+        display_name: displayName,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "id" });
+      if (error) {
+        showToast("资料保存失败");
+        return;
+      }
+      state.profile = { ...(state.profile || {}), display_name: displayName };
+      showToast("资料已保存");
+    }
+
+    async function syncCloudData() {
+      if (!cloudClient || !state.user) return;
+      try {
+        updateAccountUi("同步中");
+        await uploadLocalDiaryToCloud();
+        await uploadLocalFavoritesToCloud();
+        await pullCloudDiaryToLocal();
+        await pullCloudFavoritesToLocal();
+        await renderDiary();
+        renderFavorites();
+        updateAccountUi("已登录");
+        showToast("云端同步完成");
+      } catch (error) {
+        updateAccountUi("同步失败");
+        showToast("云端同步失败，本地数据不受影响");
+      }
+    }
+
+    async function uploadLocalDiaryToCloud() {
+      const records = await getDiaryRecords();
+      if (!records.length) return;
+      const rows = records.map((record) => ({
+        id: Number(record.id),
+        user_id: state.user.id,
+        date: record.date || "",
+        text: record.text || "",
+        photos: record.photos || [],
+        updated_at: new Date().toISOString()
+      }));
+      await cloudClient.from("diary_entries").upsert(rows, { onConflict: "user_id,id" });
+    }
+
+    async function pullCloudDiaryToLocal() {
+      const { data, error } = await cloudClient
+        .from("diary_entries")
+        .select("id,date,text,photos")
+        .eq("user_id", state.user.id)
+        .order("id", { ascending: false });
+      if (error || !data) return;
+      await replaceLocalDiaryRecords(data.map((item) => ({
+        id: Number(item.id),
+        date: item.date || "",
+        text: item.text || "",
+        photos: item.photos || []
+      })));
+    }
+
+    async function uploadLocalFavoritesToCloud() {
+      const list = storageGet("blessing:favorites");
+      if (!list.length) return;
+      const rows = list.map((item) => ({
+        id: Number(item.id),
+        user_id: state.user.id,
+        name: item.name || "",
+        tone: item.tone || "",
+        wish: item.wish || "",
+        tags: item.tags || [],
+        date: item.date || "",
+        season: item.season || "",
+        updated_at: new Date().toISOString()
+      }));
+      await cloudClient.from("favorite_wishes").upsert(rows, { onConflict: "user_id,id" });
+    }
+
+    async function pullCloudFavoritesToLocal() {
+      const { data, error } = await cloudClient
+        .from("favorite_wishes")
+        .select("id,name,tone,wish,tags,date,season")
+        .eq("user_id", state.user.id)
+        .order("id", { ascending: false });
+      if (error || !data) return;
+      storageSet("blessing:favorites", data.map((item) => ({
+        id: Number(item.id),
+        name: item.name || "",
+        tone: item.tone || "",
+        wish: item.wish || "",
+        tags: item.tags || [],
+        date: item.date || "",
+        season: item.season || ""
+      })).slice(0, 60));
+    }
+
+    async function cloudUpsertDiary(record) {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("diary_entries").upsert({
+        id: Number(record.id),
+        user_id: state.user.id,
+        date: record.date || "",
+        text: record.text || "",
+        photos: record.photos || [],
+        updated_at: new Date().toISOString()
+      }, { onConflict: "user_id,id" });
+    }
+
+    async function cloudDeleteDiary(id) {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("diary_entries").delete().eq("user_id", state.user.id).eq("id", Number(id));
+    }
+
+    async function cloudClearDiary() {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("diary_entries").delete().eq("user_id", state.user.id).gte("id", 0);
+    }
+
+    async function cloudUpsertFavorite(item) {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("favorite_wishes").upsert({
+        id: Number(item.id),
+        user_id: state.user.id,
+        name: item.name || "",
+        tone: item.tone || "",
+        wish: item.wish || "",
+        tags: item.tags || [],
+        date: item.date || "",
+        season: item.season || "",
+        updated_at: new Date().toISOString()
+      }, { onConflict: "user_id,id" });
+    }
+
+    async function cloudDeleteFavorite(id) {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("favorite_wishes").delete().eq("user_id", state.user.id).eq("id", Number(id));
+    }
+
+    async function cloudClearFavorites() {
+      if (!cloudClient || !state.user) return;
+      await cloudClient.from("favorite_wishes").delete().eq("user_id", state.user.id).gte("id", 0);
+    }
+
     const DB_NAME = "crab-blessing-db";
     const DB_VERSION = 1;
     const DIARY_STORE = "diary";
@@ -2617,6 +2926,17 @@
       await withDiaryStore("readwrite", (store) => store.clear());
     }
 
+    async function replaceLocalDiaryRecords(records) {
+      try {
+        await clearDiaryRecords();
+        for (const record of records) {
+          await addDiaryRecord(record);
+        }
+      } catch (error) {
+        storageSet("blessing:diary", records);
+      }
+    }
+
     async function migrateDiaryToIndexedDB() {
       const oldRecords = storageGet("blessing:diary");
       if (!oldRecords.length) return;
@@ -2639,13 +2959,15 @@
       } catch (error) {}
     }
 
-    function saveFavorite() {
+    async function saveFavorite() {
       if (!state.current) generate();
       const list = storageGet("blessing:favorites");
-      list.unshift({ ...state.current, id: Date.now() });
+      const item = { ...state.current, id: Date.now() };
+      list.unshift(item);
       storageSet("blessing:favorites", list.slice(0, 12));
       renderFavorites();
-      showToast("已收藏这条祝福");
+      cloudUpsertFavorite(item).catch(() => {});
+      showToast(state.user ? "已收藏并同步到云端" : "已收藏这条祝福");
     }
 
     function renderFavorites() {
@@ -2661,8 +2983,9 @@
         </div>
       `).join("");
       document.querySelectorAll("[data-fav]").forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", async () => {
           storageSet("blessing:favorites", storageGet("blessing:favorites").filter((item) => String(item.id) !== button.dataset.fav));
+          await cloudDeleteFavorite(button.dataset.fav).catch(() => {});
           renderFavorites();
         });
       });
@@ -2836,8 +3159,9 @@
       $("diaryText").value = "";
       state.diaryPhotos = [];
       renderPhotoGrid();
+      cloudUpsertDiary(record).catch(() => {});
       await renderDiary();
-      showToast("日记已保存到手机本地数据库");
+      showToast(state.user ? "日记已保存并同步到云端" : "日记已保存到手机本地数据库");
     }
 
     function timeLabel() {
@@ -2869,7 +3193,12 @@
       });
       document.querySelectorAll("[data-diary]").forEach((button) => {
         button.addEventListener("click", async () => {
-          await deleteDiaryRecord(button.dataset.diary);
+          try {
+            await deleteDiaryRecord(button.dataset.diary);
+          } catch (error) {
+            storageSet("blessing:diary", storageGet("blessing:diary").filter((item) => String(item.id) !== String(button.dataset.diary)));
+          }
+          await cloudDeleteDiary(button.dataset.diary).catch(() => {});
           await renderDiary();
         });
       });
@@ -2888,6 +3217,8 @@
         localStorage.removeItem("blessing:diary");
       }
       localStorage.removeItem("blessing:favorites");
+      await cloudClearDiary().catch(() => {});
+      await cloudClearFavorites().catch(() => {});
       await renderDiary();
       renderFavorites();
       showToast("已清空");
@@ -2933,6 +3264,7 @@
       await requestPersistentStorage();
       await migrateDiaryToIndexedDB();
       await renderDiary();
+      await initCloud();
     })();
 
     $("generateBtn").addEventListener("click", generate);
@@ -2948,6 +3280,13 @@
     $("saveWishImageBtn").addEventListener("click", saveWishImage);
     $("saveBtn").addEventListener("click", saveFavorite);
     $("exportBtn").addEventListener("click", exportData);
+    $("emailLoginBtn").addEventListener("click", sendEmailLogin);
+    $("emailInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") sendEmailLogin();
+    });
+    $("saveProfileBtn").addEventListener("click", saveProfile);
+    $("syncCloudBtn").addEventListener("click", syncCloudData);
+    $("logoutBtn").addEventListener("click", logoutCloud);
     $("useDeviceLocationBtn").addEventListener("click", () => loadDeviceLocation({ silent: false }));
     $("saveLocationBtn").addEventListener("click", saveManualLocation);
     $("locationInput").addEventListener("keydown", (event) => {
