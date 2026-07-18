@@ -1,9 +1,10 @@
-const CACHE_NAME = "daily-blessing-v23";
+const CACHE_NAME = "daily-blessing-v24";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./icon.svg"
+  "./icon.svg",
+  "./cloud-schema.sql"
 ];
 
 self.addEventListener("install", (event) => {
